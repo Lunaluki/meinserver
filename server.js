@@ -66,7 +66,7 @@ app.post("/tickets/:id/close", async (req, res) => {
 
     // MailWatcher informieren
     try {
-    await fetch("https://rod-have-payments-hazardous.trycloudflare.com/ticket-closed", {
+    await fetch("https://soldiers-blond-chorus-nat.trycloudflare.com/ticket-closed", {
   method: "POST",
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify({
