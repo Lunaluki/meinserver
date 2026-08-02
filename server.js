@@ -3,41 +3,12 @@ import mongoose from "mongoose";
 import cors from "cors";
 import dotenv from "dotenv";
 import Ticket from "./models/ticket.js";
-import nodemailer from "nodemailer";
 
 dotenv.config();
 
 const app = express();
 app.use(express.json());
 app.use(cors());
-
-// ---------------------------------------------------------
-// 🌙 Luna Logging – schön & übersichtlich
-// ---------------------------------------------------------
-app.use((req, res, next) => {
-  const start = Date.now();
-  const time = new Date().toLocaleTimeString("de-DE");
-
-  console.log(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
-  console.log(`📥 [${time}] Anfrage: ${req.method} ${req.path}`);
-
-  if (Object.keys(req.body).length > 0) {
-    console.log(`   📦 Body:`, JSON.stringify(req.body, null, 2));
-  }
-
-  const originalJson = res.json.bind(res);
-  res.json = (data) => {
-    const ms = Date.now() - start;
-    const end = new Date().toLocaleTimeString("de-DE");
-
-    console.log(`📤 [${end}] Antwort (${ms}ms): Status ${res.statusCode}`);
-    console.log(`   🔁 Daten:`, JSON.stringify(data, null, 2));
-    console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
-    return originalJson(data);
-  };
-
-  next();
-});
 
 // ---------------------------------------------------------
 // 🗄️ MongoDB Verbindung
@@ -47,25 +18,6 @@ mongoose.connect(process.env.MONGO_URI)
   .catch(err => console.error("❌ Mongo Fehler:", err));
 
 // ---------------------------------------------------------
-// 📧 Nodemailer – Gmail Login
-// ---------------------------------------------------------
-const transporter = nodemailer.createTransport({
-  service: "gmail",
-  auth: {
-    user: process.env.GMAIL_USER,
-    pass: process.env.GMAIL_PASS
-  }
-});
-
-transporter.verify((err) => {
-  if (err) {
-    console.error("❌ Gmail Login fehlgeschlagen:", err.message);
-  } else {
-    console.log("✅ Gmail bereit – Mailversand aktiv");
-  }
-});
-
-// ---------------------------------------------------------
 // 🎫 Ticket-ID Generator
 // ---------------------------------------------------------
 function generateTicketId() {
@@ -73,30 +25,7 @@ function generateTicketId() {
 }
 
 // ---------------------------------------------------------
-// 📨 Testmail
-// ---------------------------------------------------------
-app.get("/testmail", async (req, res) => {
-  try {
-    await transporter.sendMail({
-      from: process.env.GMAIL_USER,
-      to: process.env.GMAIL_USER,
-      subject: "Luna Testmail",
-      text: `Hallo,
-
-dies ist eine automatische Testmail des Luna Support Systems.
-
-✯ 『𝗟𝘂𝗻𝗮 𝗧𝗲𝗮𝗺』 ✯`
-    });
-
-    res.json({ success: true, message: "Testmail gesendet!" });
-  } catch (err) {
-    console.error("❌ Testmail Fehler:", err);
-    res.status(500).json({ error: "Mail Fehler" });
-  }
-});
-
-// ---------------------------------------------------------
-// 📋 Alle Tickets abrufen (Admin Panel / Userseite)
+// 📋 Alle Tickets abrufen
 // ---------------------------------------------------------
 app.get("/tickets", async (req, res) => {
   try {
@@ -108,7 +37,9 @@ app.get("/tickets", async (req, res) => {
   }
 });
 
-// Einzelnes Ticket (für Ticketstatus-Seite)
+// ---------------------------------------------------------
+// 📋 Einzelnes Ticket abrufen
+// ---------------------------------------------------------
 app.get("/tickets/:id", async (req, res) => {
   try {
     const ticket = await Ticket.findOne({ ticketId: req.params.id });
@@ -157,46 +88,7 @@ app.post("/tickets/:id/open", async (req, res) => {
 });
 
 // ---------------------------------------------------------
-// 📝 Ticket erstellen (Admin Panel / API)
-// ---------------------------------------------------------
-app.post("/tickets", async (req, res) => {
-  try {
-    const ticketId = generateTicketId();
-
-    const ticket = new Ticket({
-      ticketId,
-      from: req.body.from,
-      subject: req.body.subject,
-      message: req.body.message,
-      status: "open",
-      date: new Date()
-    });
-
-    await ticket.save();
-
-    await transporter.sendMail({
-      from: process.env.GMAIL_USER,
-      to: req.body.from,
-      subject: `Ticket erhalten: ${req.body.subject}`,
-      text: `Hallo,
-
-wir haben dein Ticket erfolgreich erhalten.
-Deine Ticket-ID lautet: ${ticketId}
-
-Status: offen (in Bearbeitung)
-
-✯ 『𝗟𝘂𝗻𝗮 𝗧𝗲𝗮𝗺』 ✯`
-    });
-
-    res.json({ success: true, ticketId });
-  } catch (err) {
-    console.error("❌ Fehler beim Erstellen des Tickets:", err);
-    res.status(500).json({ error: "Fehler beim Erstellen des Tickets" });
-  }
-});
-
-// ---------------------------------------------------------
-// ❤️ Healthcheck für Railway / Render
+// ❤️ Healthcheck für Render
 // ---------------------------------------------------------
 app.get("/health", (req, res) => {
   res.status(200).send("OK");
