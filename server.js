@@ -280,7 +280,8 @@ startMailWatcher();
 // ---------------------------------------------------------
 // 🚀 Server starten
 // ---------------------------------------------------------
-const PORT = process.env.PORT || 3001;
+const port = process.env.PORT || 10000;
+
 
 app.listen(PORT, () => {
   console.log(`🚀 Luna Backend läuft auf Port ${PORT}`);
