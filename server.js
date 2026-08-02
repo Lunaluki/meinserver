@@ -4,8 +4,6 @@ import cors from "cors";
 import dotenv from "dotenv";
 import Ticket from "./models/ticket.js";
 import nodemailer from "nodemailer";
-import { ImapFlow } from "imapflow";
-import { simpleParser } from "mailparser";
 
 dotenv.config();
 
@@ -98,7 +96,7 @@ dies ist eine automatische Testmail des Luna Support Systems.
 });
 
 // ---------------------------------------------------------
-// 📋 Alle Tickets abrufen (Admin Panel)
+// 📋 Alle Tickets abrufen (Admin Panel / Userseite)
 // ---------------------------------------------------------
 app.get("/tickets", async (req, res) => {
   try {
@@ -107,6 +105,18 @@ app.get("/tickets", async (req, res) => {
   } catch (err) {
     console.error("❌ Fehler beim Abrufen der Tickets:", err);
     res.status(500).json({ error: "Fehler beim Abrufen der Tickets" });
+  }
+});
+
+// Einzelnes Ticket (für Ticketstatus-Seite)
+app.get("/tickets/:id", async (req, res) => {
+  try {
+    const ticket = await Ticket.findOne({ ticketId: req.params.id });
+    if (!ticket) return res.status(404).json({ error: "Ticket nicht gefunden" });
+    res.json(ticket);
+  } catch (err) {
+    console.error("❌ Fehler beim Abrufen des Tickets:", err);
+    res.status(500).json({ error: "Fehler beim Abrufen des Tickets" });
   }
 });
 
@@ -127,14 +137,6 @@ app.post("/tickets/:id/close", async (req, res) => {
     res.status(500).json({ error: "Fehler beim Schließen des Tickets" });
   }
 });
-
-// ---------------------------------------------------------
-// ❤️ Healthcheck für Railway
-// ---------------------------------------------------------
-app.get("/health", (req, res) => {
-  res.status(200).send("OK");
-});
-
 
 // ---------------------------------------------------------
 // 🔓 Ticket öffnen
@@ -194,124 +196,11 @@ Status: offen (in Bearbeitung)
 });
 
 // ---------------------------------------------------------
-// 📬 IMAP Gmail Überwachung → nur Betreff "lunasupport"
+// ❤️ Healthcheck für Railway / Render
 // ---------------------------------------------------------
-const GESUCHTER_BETREFF = "lunasupport";
-
-let imapClient = null;
-
-if (process.env.GMAIL_USER && process.env.GMAIL_PASS) {
-  imapClient = new ImapFlow({
-    host: "imap.gmail.com",
-    port: 993,
-    secure: true,
-    auth: {
-      user: process.env.GMAIL_USER,
-      pass: process.env.GMAIL_PASS,
-    },
-  });
-
-  imapClient.on("error", (err) => {
-    console.error("❌ IMAP Fehler:", err.message);
-  });
-
-  imapClient.on("close", () => {
-    console.error("❌ IMAP Verbindung geschlossen");
-  });
-} else {
-  console.warn("⚠️ IMAP deaktiviert: GMAIL_USER oder GMAIL_PASS fehlen");
-}
-
-async function startMailWatcher() {
-  if (!imapClient) {
-    console.warn("⚠️ MailWatcher nicht gestartet: kein IMAP-Client vorhanden");
-    return;
-  }
-
-  try {
-    await imapClient.connect();
-    await imapClient.mailboxOpen("INBOX");
-
-    console.log("📡 Gmail Überwachung aktiv…");
-
-    imapClient.on("exists", async () => {
-      console.log("📨 Neue Mail erkannt!");
-
-      const lock = await imapClient.getMailboxLock("INBOX");
-
-      try {
-        const message = await imapClient.fetchOne(
-          imapClient.mailbox.exists,
-          { source: true, envelope: true }
-        );
-
-        const mail = await simpleParser(message.source);
-
-        const betreff = (mail.subject || "").toLowerCase();
-        const absender = mail.from?.value?.[0]?.address || "";
-        const text = mail.text || "";
-
-        console.log(`📥 Neue Mail von ${absender}`);
-        console.log(`   🏷️ Betreff: ${betreff}`);
-
-        if (betreff !== GESUCHTER_BETREFF) {
-          console.log("   ❌ Betreff ignoriert (nicht lunasupport)");
-          return;
-        }
-
-        const ticketId = generateTicketId();
-
-        const ticket = new Ticket({
-          ticketId,
-          from: absender,
-          subject: betreff,
-          message: text,
-          status: "open",
-          date: new Date()
-        });
-
-        await ticket.save();
-        console.log(`   💾 Ticket erstellt → ${ticketId}`);
-
-        await transporter.sendMail({
-          from: process.env.GMAIL_USER,
-          to: absender,
-          subject: `Ticket erhalten: ${ticketId}`,
-          text: `Hallo,
-
-wir haben deine Nachricht erhalten.
-Deine Ticket-ID lautet: ${ticketId}
-
-Status: offen (in Bearbeitung)
-
-✯ 『𝗟𝘂𝗻𝗮 𝗧𝗲𝗮𝗺』 ✯`
-        });
-
-        console.log("   📨 Automatische Antwort gesendet.");
-      } catch (err) {
-        console.error("❌ Fehler beim Verarbeiten der Mail:", err);
-      } finally {
-        lock.release();
-      }
-    });
-
-    // Nicht-blockierende Idle-Schleife
-    async function idleLoop() {
-      try {
-        await imapClient.idle();
-      } catch (err) {
-        console.error("❌ Idle Fehler:", err.message);
-      } finally {
-        setTimeout(idleLoop, 2000);
-      }
-    }
-
-    idleLoop();
-
-  } catch (err) {
-    console.error("❌ Fehler im MailWatcher:", err);
-  }
-}
+app.get("/health", (req, res) => {
+  res.status(200).send("OK");
+});
 
 // ---------------------------------------------------------
 // 🚀 Server starten
@@ -320,6 +209,4 @@ const PORT = process.env.PORT || 10000;
 
 app.listen(PORT, () => {
   console.log(`🚀 Luna Backend läuft auf Port ${PORT}`);
-
-  startMailWatcher();
 });
