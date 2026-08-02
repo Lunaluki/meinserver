@@ -280,7 +280,7 @@ startMailWatcher();
 // ---------------------------------------------------------
 // 🚀 Server starten
 // ---------------------------------------------------------
-const port = process.env.PORT || 10000;
+const PORT = process.env.PORT || 10000;
 
 
 app.listen(PORT, () => {
