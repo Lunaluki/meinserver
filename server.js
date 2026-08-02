@@ -66,14 +66,15 @@ app.post("/tickets/:id/close", async (req, res) => {
 
     // MailWatcher informieren
     try {
-      await fetch("http://localhost:3001/ticket-closed", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ticketId: ticket.ticketId,
-          email: ticket.from
-        })
-      });
+     await fetch("https://luna-mailwatcher.localhost.run/ticket-closed", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    ticketId: ticket.ticketId,
+    email: ticket.from
+  })
+});
+
 
       console.log(`📨 Ticket geschlossen → MailWatcher informiert (${ticket.ticketId})`);
     } catch (err) {
