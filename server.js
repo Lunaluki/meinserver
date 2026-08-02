@@ -287,9 +287,18 @@ Status: offen (in Bearbeitung)
       }
     });
 
-    while (true) {
-      await imapClient.idle();
+    // Nicht-blockierende Idle-Schleife
+    async function idleLoop() {
+      try {
+        await imapClient.idle();
+      } catch (err) {
+        console.error("❌ Idle Fehler:", err.message);
+      } finally {
+        setTimeout(idleLoop, 2000);
+      }
     }
+
+    idleLoop();
 
   } catch (err) {
     console.error("❌ Fehler im MailWatcher:", err);
@@ -304,6 +313,5 @@ const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
   console.log(`🚀 Luna Backend läuft auf Port ${PORT}`);
 
-  // IMAP-Watcher nur starten, wenn Credentials da sind
   startMailWatcher();
 });
