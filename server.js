@@ -199,64 +199,58 @@ const imapClient = new ImapFlow({
 });
 
 async function startMailWatcher() {
-  try {
-    await imapClient.connect();
-    const mailbox = await imapClient.mailboxOpen("INBOX");
+    try {
+        await imapClient.connect();
+        await imapClient.mailboxOpen("INBOX");
 
-    console.log("📡 Gmail Überwachung aktiv… (Filter: Betreff = lunasupport)");
+        console.log("📡 Gmail Überwachung aktiv…");
 
-    while (true) {
-      await imapClient.idle();
+        // Listener für neue Mails
+        imapClient.on("exists", async () => {
+            console.log("📨 Neue Mail erkannt!");
 
-      const messages = await imapClient.fetch(`${mailbox.exists}:*`, {
-        uid: true,
-        envelope: true,
-        source: true,
-      });
+            // letzte Mail abrufen
+            const lock = await imapClient.getMailboxLock("INBOX");
 
-      for await (const msg of messages) {
-        const mail = await simpleParser(msg.source);
+            try {
+                const message = await imapClient.fetchOne(
+                    imapClient.mailbox.exists,
+                    { source: true, envelope: true }
+                );
 
-        const betreff = (mail.subject || "").toLowerCase();
-        const absender = mail.from.value[0].address;
-        const text = mail.text || "";
+                const mail = await simpleParser(message.source);
 
-        console.log(`📥 Neue Mail von ${absender}`);
-        console.log(`   🏷️ Betreff: ${betreff}`);
+                const betreff = (mail.subject || "").toLowerCase();
+                const absender = mail.from.value[0].address;
+                const text = mail.text || "";
 
-        // ---------------------------------------------------------
-        // ❌ Betreff passt NICHT → ignorieren
-        // ---------------------------------------------------------
-        if (betreff !== GESUCHTER_BETREFF) {
-          console.log("   ❌ Betreff ignoriert (nicht lunasupport)");
-          continue;
-        }
+                console.log(`📥 Neue Mail von ${absender}`);
+                console.log(`   🏷️ Betreff: ${betreff}`);
 
-        // ---------------------------------------------------------
-        // ✔ Betreff passt → Ticket erstellen
-        // ---------------------------------------------------------
-        const ticketId = generateTicketId();
+                if (betreff !== GESUCHTER_BETREFF) {
+                    console.log("   ❌ Betreff ignoriert (nicht lunasupport)");
+                    return;
+                }
 
-        const ticket = new Ticket({
-          ticketId,
-          from: absender,
-          subject: betreff,
-          message: text,
-          status: "open",
-          date: new Date()
-        });
+                const ticketId = generateTicketId();
 
-        await ticket.save();
-        console.log(`   💾 Ticket erstellt → ${ticketId}`);
+                const ticket = new Ticket({
+                    ticketId,
+                    from: absender,
+                    subject: betreff,
+                    message: text,
+                    status: "open",
+                    date: new Date()
+                });
 
-        // ---------------------------------------------------------
-        // ✔ Automatische Antwort
-        // ---------------------------------------------------------
-        await transporter.sendMail({
-          from: process.env.GMAIL_USER,
-          to: absender,
-          subject: `Ticket erhalten: ${ticketId}`,
-          text: `Hallo,
+                await ticket.save();
+                console.log(`   💾 Ticket erstellt → ${ticketId}`);
+
+                await transporter.sendMail({
+                    from: process.env.GMAIL_USER,
+                    to: absender,
+                    subject: `Ticket erhalten: ${ticketId}`,
+                    text: `Hallo,
 
 wir haben deine Nachricht erhalten.
 Deine Ticket-ID lautet: ${ticketId}
@@ -264,17 +258,24 @@ Deine Ticket-ID lautet: ${ticketId}
 Status: offen (in Bearbeitung)
 
 ✯ 『𝗟𝘂𝗻𝗮 𝗧𝗲𝗮𝗺』 ✯`
+                });
+
+                console.log("   📨 Automatische Antwort gesendet.");
+            } finally {
+                lock.release();
+            }
         });
 
-        console.log("   📨 Automatische Antwort gesendet.");
-      }
+        // IDLE dauerhaft aktiv halten
+        while (true) {
+            await imapClient.idle();
+        }
+
+    } catch (err) {
+        console.error("❌ Fehler im MailWatcher:", err);
     }
-  } catch (err) {
-    console.error("❌ Fehler im MailWatcher:", err);
-  }
 }
 
-startMailWatcher();
 
 
 // ---------------------------------------------------------
