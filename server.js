@@ -3,6 +3,8 @@ import mongoose from "mongoose";
 import cors from "cors";
 import dotenv from "dotenv";
 import Ticket from "./models/ticket.js";
+import fetch from "node-fetch";
+
 
 dotenv.config();
 
@@ -62,12 +64,29 @@ app.post("/tickets/:id/close", async (req, res) => {
     ticket.status = "closed";
     await ticket.save();
 
+    // MailWatcher informieren
+    try {
+      await fetch("http://localhost:3001/ticket-closed", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ticketId: ticket.ticketId,
+          email: ticket.from
+        })
+      });
+
+      console.log(`📨 Ticket geschlossen → MailWatcher informiert (${ticket.ticketId})`);
+    } catch (err) {
+      console.error("❌ Fehler beim Informieren des MailWatchers:", err.message);
+    }
+
     res.json({ success: true, status: "closed" });
   } catch (err) {
     console.error("❌ Fehler beim Schließen des Tickets:", err);
     res.status(500).json({ error: "Fehler beim Schließen des Tickets" });
   }
 });
+
 
 // ---------------------------------------------------------
 // 🔓 Ticket öffnen
