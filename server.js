@@ -5,7 +5,6 @@ import dotenv from "dotenv";
 import Ticket from "./models/ticket.js";
 import fetch from "node-fetch";
 
-
 dotenv.config();
 
 const app = express();
@@ -66,16 +65,14 @@ app.post("/tickets/:id/close", async (req, res) => {
 
     // MailWatcher informieren
     try {
-    await fetch("https://soldiers-blond-chorus-nat.trycloudflare.com/ticket-closed", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({
-    ticketId: ticket.ticketId,
-    email: ticket.from
-  })
-});
-
-
+      await fetch("https://soldiers-blond-chorus-nat.trycloudflare.com/ticket-closed", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ticketId: ticket.ticketId,
+          email: ticket.from
+        })
+      });
 
       console.log(`📨 Ticket geschlossen → MailWatcher informiert (${ticket.ticketId})`);
     } catch (err) {
@@ -88,8 +85,6 @@ app.post("/tickets/:id/close", async (req, res) => {
     res.status(500).json({ error: "Fehler beim Schließen des Tickets" });
   }
 });
-
-
 
 // ---------------------------------------------------------
 // 🔓 Ticket öffnen
@@ -106,6 +101,31 @@ app.post("/tickets/:id/open", async (req, res) => {
   } catch (err) {
     console.error("❌ Fehler beim Öffnen des Tickets:", err);
     res.status(500).json({ error: "Fehler beim Öffnen des Tickets" });
+  }
+});
+
+// ---------------------------------------------------------
+// 📨 Admin-Antwort an Nutzer senden
+// ---------------------------------------------------------
+app.post("/tickets/:id/reply", async (req, res) => {
+  const { email, text } = req.body;
+
+  if (!email || !text) {
+    return res.status(400).json({ error: "Email oder Text fehlt" });
+  }
+
+  try {
+    await fetch("https://soldiers-blond-chorus-nat.trycloudflare.com/admin-reply", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, text })
+    });
+
+    console.log(`📨 Admin-Antwort gesendet → ${email}`);
+    res.json({ success: true });
+  } catch (err) {
+    console.error("❌ Fehler beim Senden der Admin-Antwort:", err.message);
+    res.status(500).json({ error: "MailWatcher Fehler" });
   }
 });
 
