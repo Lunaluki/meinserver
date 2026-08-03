@@ -53,6 +53,24 @@ app.get("/tickets/:id", async (req, res) => {
 });
 
 // ---------------------------------------------------------
+// 🟡 Ticket auf "processing" setzen (NEU)
+// ---------------------------------------------------------
+app.post("/tickets/:id/processing", async (req, res) => {
+  try {
+    const ticket = await Ticket.findOne({ ticketId: req.params.id });
+    if (!ticket) return res.status(404).json({ error: "Ticket nicht gefunden" });
+
+    ticket.status = "processing";
+    await ticket.save();
+
+    res.json({ success: true, status: "processing" });
+  } catch (err) {
+    console.error("❌ Fehler beim Setzen des Bearbeitungsstatus:", err);
+    res.status(500).json({ error: "Fehler beim Setzen des Bearbeitungsstatus" });
+  }
+});
+
+// ---------------------------------------------------------
 // 🔒 Ticket schließen
 // ---------------------------------------------------------
 app.post("/tickets/:id/close", async (req, res) => {
