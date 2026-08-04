@@ -11,6 +11,7 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
+const MAILWATCHER = "https://privacy-janet-chorus-skill.trycloudflare.com";
 // ---------------------------------------------------------
 // 🗄️ MongoDB Verbindung
 // ---------------------------------------------------------
@@ -83,7 +84,7 @@ app.post("/tickets/:id/close", async (req, res) => {
 
     // MailWatcher informieren
     try {
-      await fetch("https://soldiers-blond-chorus-nat.trycloudflare.com/ticket-closed", {
+      await fetch(`${MAILWATCHER}/ticket-closed`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -133,7 +134,7 @@ app.post("/tickets/:id/reply", async (req, res) => {
   }
 
   try {
-    await fetch("https://soldiers-blond-chorus-nat.trycloudflare.com/admin-reply", {
+    await fetch(`${MAILWATCHER}/admin-reply`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, text })
