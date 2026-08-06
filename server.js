@@ -11,7 +11,7 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
-const MAILWATCHER = "https://privacy-janet-chorus-skill.trycloudflare.com";
+const MAILWATCHER = "https://philadelphia-graphical-controller-totally.trycloudflare.com";
 // ---------------------------------------------------------
 // 🗄️ MongoDB Verbindung
 // ---------------------------------------------------------
