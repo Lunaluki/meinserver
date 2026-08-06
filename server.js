@@ -11,7 +11,7 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
-const MAILWATCHER = "https://philadelphia-graphical-controller-totally.trycloudflare.com";
+const MAILWATCHER = "https://gathering-spec-upload-shapestrycloudflare.com";
 // ---------------------------------------------------------
 // 🗄️ MongoDB Verbindung
 // ---------------------------------------------------------
