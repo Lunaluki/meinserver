@@ -12,6 +12,7 @@ app.use(express.json());
 app.use(cors());
 
 const MAILWATCHER = "https://gathering-spec-upload-shapestrycloudflare.com";
+
 // ---------------------------------------------------------
 // 🗄️ MongoDB Verbindung
 // ---------------------------------------------------------
@@ -20,11 +21,82 @@ mongoose.connect(process.env.MONGO_URI)
   .catch(err => console.error("❌ Mongo Fehler:", err));
 
 // ---------------------------------------------------------
+// 🛠️ Hilfsfunktion: Gerät/Betriebssystem erkennen
+// ---------------------------------------------------------
+function detectDeviceOS(req, providedOS) {
+  if (providedOS && providedOS !== "Unbekannt") {
+    return providedOS;
+  }
+
+  const userAgent = req.headers["user-agent"] || "";
+  
+  if (/android/i.test(userAgent)) {
+    return "Android";
+  }
+  if (/iPhone|iPad|iPod/i.test(userAgent)) {
+    return "iOS";
+  }
+  if (/Win/i.test(userAgent)) {
+    return "Windows";
+  }
+  if (/Mac/i.test(userAgent)) {
+    return "Mac OS";
+  }
+  if (/Linux/i.test(userAgent)) {
+    return "Linux";
+  }
+
+  return "Web / PC";
+}
+
+// ---------------------------------------------------------
 // 🎫 Ticket-ID Generator
 // ---------------------------------------------------------
 function generateTicketId() {
   return "LUNA-" + Date.now();
 }
+
+// ---------------------------------------------------------
+// ➕ NEU: Ticket erstellen (Sammelt Daten wie Android, iOS, WhatsApp)
+// ---------------------------------------------------------
+app.post("/tickets", async (req, res) => {
+  try {
+    const { from, email, text, message, subject, os, platform, source, isWhatsapp } = req.body;
+
+    const senderEmail = from || email;
+    const bodyText = text || message;
+
+    if (!senderEmail || !bodyText) {
+      return res.status(400).json({ error: "E-Mail und Nachrichtentext sind erforderlich." });
+    }
+
+    // Automatische Systemerkennung aus dem Request-Header oder Payload
+    const detectedOS = detectDeviceOS(req, os || platform);
+    const userAgentHeader = req.headers["user-agent"] || "Unbekannt";
+
+    const newTicket = new Ticket({
+      ticketId: generateTicketId(),
+      from: senderEmail,
+      text: bodyText,
+      subject: subject || "Luna Support Anfrage",
+      status: "open",
+      date: new Date(),
+      // 📱 Erfasste Systemdaten:
+      os: detectedOS,
+      source: source || (isWhatsapp ? "WhatsApp" : "Webformular"),
+      isWhatsapp: Boolean(isWhatsapp),
+      userAgent: userAgentHeader
+    });
+
+    await newTicket.save();
+    console.log(`📩 Neues Ticket erstellt (${newTicket.ticketId}) - System: ${detectedOS}`);
+
+    res.status(201).json({ success: true, ticket: newTicket });
+  } catch (err) {
+    console.error("❌ Fehler beim Erstellen des Tickets:", err);
+    res.status(500).json({ error: "Fehler beim Erstellen des Tickets" });
+  }
+});
 
 // ---------------------------------------------------------
 // 📋 Alle Tickets abrufen
@@ -44,7 +116,10 @@ app.get("/tickets", async (req, res) => {
 // ---------------------------------------------------------
 app.get("/tickets/:id", async (req, res) => {
   try {
-    const ticket = await Ticket.findOne({ ticketId: req.params.id });
+    const ticket = await Ticket.findOne({
+      $or: [{ ticketId: req.params.id }, { _id: req.params.id }]
+    });
+
     if (!ticket) return res.status(404).json({ error: "Ticket nicht gefunden" });
     res.json(ticket);
   } catch (err) {
@@ -54,11 +129,14 @@ app.get("/tickets/:id", async (req, res) => {
 });
 
 // ---------------------------------------------------------
-// 🟡 Ticket auf "processing" setzen (NEU)
+// 🟡 Ticket auf "processing" setzen
 // ---------------------------------------------------------
 app.post("/tickets/:id/processing", async (req, res) => {
   try {
-    const ticket = await Ticket.findOne({ ticketId: req.params.id });
+    const ticket = await Ticket.findOne({
+      $or: [{ ticketId: req.params.id }, { _id: req.params.id }]
+    });
+
     if (!ticket) return res.status(404).json({ error: "Ticket nicht gefunden" });
 
     ticket.status = "processing";
@@ -76,7 +154,10 @@ app.post("/tickets/:id/processing", async (req, res) => {
 // ---------------------------------------------------------
 app.post("/tickets/:id/close", async (req, res) => {
   try {
-    const ticket = await Ticket.findOne({ ticketId: req.params.id });
+    const ticket = await Ticket.findOne({
+      $or: [{ ticketId: req.params.id }, { _id: req.params.id }]
+    });
+
     if (!ticket) return res.status(404).json({ error: "Ticket nicht gefunden" });
 
     ticket.status = "closed";
@@ -110,7 +191,10 @@ app.post("/tickets/:id/close", async (req, res) => {
 // ---------------------------------------------------------
 app.post("/tickets/:id/open", async (req, res) => {
   try {
-    const ticket = await Ticket.findOne({ ticketId: req.params.id });
+    const ticket = await Ticket.findOne({
+      $or: [{ ticketId: req.params.id }, { _id: req.params.id }]
+    });
+
     if (!ticket) return res.status(404).json({ error: "Ticket nicht gefunden" });
 
     ticket.status = "open";
@@ -124,12 +208,34 @@ app.post("/tickets/:id/open", async (req, res) => {
 });
 
 // ---------------------------------------------------------
+// 🗑️ Ticket löschen
+// ---------------------------------------------------------
+app.delete("/tickets/:id", async (req, res) => {
+  try {
+    const ticket = await Ticket.findOneAndDelete({
+      $or: [{ _id: req.params.id }, { ticketId: req.params.id }]
+    });
+
+    if (!ticket) {
+      return res.status(404).json({ error: "Ticket nicht gefunden" });
+    }
+
+    console.log(`🗑️ Ticket gelöscht: ${req.params.id}`);
+    res.json({ success: true, message: "Ticket erfolgreich gelöscht" });
+  } catch (err) {
+    console.error("❌ Fehler beim Löschen des Tickets:", err);
+    res.status(500).json({ error: "Fehler beim Löschen des Tickets" });
+  }
+});
+
+// ---------------------------------------------------------
 // 📨 Admin-Antwort an Nutzer senden
 // ---------------------------------------------------------
 app.post("/tickets/:id/reply", async (req, res) => {
-  const { email, text } = req.body;
+  const { email, text, message } = req.body;
+  const replyText = text || message;
 
-  if (!email || !text) {
+  if (!email || !replyText) {
     return res.status(400).json({ error: "Email oder Text fehlt" });
   }
 
@@ -137,7 +243,7 @@ app.post("/tickets/:id/reply", async (req, res) => {
     await fetch(`${MAILWATCHER}/admin-reply`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, text })
+      body: JSON.stringify({ email, text: replyText })
     });
 
     console.log(`📨 Admin-Antwort gesendet → ${email}`);
