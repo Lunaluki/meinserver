@@ -30,7 +30,7 @@ function detectDeviceOS(req, providedOS) {
   }
 
   const userAgent = req.headers["user-agent"] || "";
-  
+
   if (/android/i.test(userAgent)) return "Android";
   if (/iPhone|iPad|iPod/i.test(userAgent)) return "iOS";
   if (/Win/i.test(userAgent)) return "Windows";
@@ -51,6 +51,76 @@ function getTicketFilter(idParam) {
   }
   return { ticketId: idParam };
 }
+
+// ---------------------------------------------------------
+// 🌐 HTML Status-Seite (für Cron-Jobs & Browser)
+// ---------------------------------------------------------
+app.get("/", (req, res) => {
+  res.status(200).send(`
+    <!DOCTYPE html>
+    <html lang="de">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Luna Support Backend</title>
+      <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+          font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+          background-color: #0f172a;
+          color: #f8fafc;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          min-height: 100vh;
+          padding: 1rem;
+        }
+        .card {
+          background: #1e293b;
+          border: 1px solid #334155;
+          padding: 2.5rem 2rem;
+          border-radius: 1rem;
+          box-shadow: 0 10px 25px rgba(0,0,0,0.4);
+          text-align: center;
+          max-width: 400px;
+          width: 100%;
+        }
+        h1 { font-size: 1.5rem; margin-bottom: 0.5rem; color: #fff; }
+        p { color: #94a3b8; font-size: 0.95rem; margin-bottom: 1.5rem; }
+        .badge {
+          display: inline-flex;
+          align-items: center;
+          gap: 10px;
+          background: rgba(16, 185, 129, 0.15);
+          color: #34d399;
+          border: 1px solid rgba(52, 211, 153, 0.3);
+          padding: 8px 18px;
+          border-radius: 9999px;
+          font-weight: 600;
+          font-size: 0.9rem;
+        }
+        .dot {
+          width: 10px;
+          height: 10px;
+          background: #10b981;
+          border-radius: 50%;
+          box-shadow: 0 0 8px #10b981;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="card">
+        <h1>Luna Backend API</h1>
+        <p>Der Service ist erreichbar und betriebsbereit.</p>
+        <div class="badge">
+          <span class="dot"></span>
+          <span>Server läuft</span>
+        </div>
+      </div>
+    </body>
+    </html>
+  `);
+});
 
 // ---------------------------------------------------------
 // ➕ Ticket erstellen
