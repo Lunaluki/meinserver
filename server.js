@@ -53,6 +53,18 @@ function getTicketFilter(idParam) {
 }
 
 // ---------------------------------------------------------
+// 🚫 Blacklist Schema & Modell
+// ---------------------------------------------------------
+const blacklistSchema = new mongoose.Schema({
+  fan: { type: String, required: true },
+  number: { type: String, required: true },
+  reason: { type: String },
+  date: { type: Date, default: Date.now }
+});
+
+const Blacklist = mongoose.model("Blacklist", blacklistSchema);
+
+// ---------------------------------------------------------
 // 🌐 HTML Status-Seite (für Cron-Jobs & Browser)
 // ---------------------------------------------------------
 app.get("/", (req, res) => {
@@ -314,6 +326,43 @@ app.post("/tickets/:id/reply", async (req, res) => {
   } catch (err) {
     console.error("❌ Fehler beim Senden der Admin-Antwort:", err.message);
     res.status(500).json({ error: "MailWatcher Fehler" });
+  }
+});
+
+// ---------------------------------------------------------
+// 🚫 Blacklist Routen (Neu hinzugefügt)
+// ---------------------------------------------------------
+app.get("/api/blacklist", async (req, res) => {
+  try {
+    const list = await Blacklist.find().sort({ date: -1 });
+    res.json(list);
+  } catch (err) {
+    console.error("❌ Fehler beim Laden der Blacklist:", err);
+    res.status(500).json({ error: "Fehler beim Laden der Blacklist" });
+  }
+});
+
+app.post("/api/blacklist", async (req, res) => {
+  try {
+    const { fan, number, reason } = req.body;
+
+    if (!fan || !number) {
+      return res.status(400).json({ error: "Vorname und Nummer sind erforderlich." });
+    }
+
+    const newEntry = new Blacklist({
+      fan,
+      number,
+      reason: reason || "Kein Grund angegeben"
+    });
+
+    await newEntry.save();
+    console.log(`🚫 Neue Blacklist-Nummer gemeldet von ${fan}: ${number}`);
+
+    res.status(201).json({ success: true, entry: newEntry });
+  } catch (err) {
+    console.error("❌ Fehler beim Speichern der Blacklist:", err);
+    res.status(500).json({ error: "Fehler beim Speichern der Nummer" });
   }
 });
 
