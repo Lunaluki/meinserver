@@ -4,6 +4,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import Ticket from "./models/ticket.js";
 import fetch from "node-fetch";
+import Blacklist from "./models/blacklist.js"; // <-- HIER HINZUFÜGEN
 
 dotenv.config();
 
