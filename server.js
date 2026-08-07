@@ -11,7 +11,8 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
-const MAILWATCHER = "https://gathering-spec-upload-shapestrycloudflare.com";
+// 🔗 MailWatcher URL über Environment Variable oder Fallback (z.B. Port 3002)
+const MAILWATCHER = process.env.MAILWATCHER_URL || "http://localhost:3002";
 
 // ---------------------------------------------------------
 // 🗄️ MongoDB Verbindung
@@ -21,7 +22,7 @@ mongoose.connect(process.env.MONGO_URI)
   .catch(err => console.error("❌ Mongo Fehler:", err));
 
 // ---------------------------------------------------------
-// 🛠️ Hilfsfunktion: Gerät/Betriebssystem erkennen
+// 🛠️ Hilfsfunktionen
 // ---------------------------------------------------------
 function detectDeviceOS(req, providedOS) {
   if (providedOS && providedOS !== "Unbekannt") {
@@ -30,34 +31,29 @@ function detectDeviceOS(req, providedOS) {
 
   const userAgent = req.headers["user-agent"] || "";
   
-  if (/android/i.test(userAgent)) {
-    return "Android";
-  }
-  if (/iPhone|iPad|iPod/i.test(userAgent)) {
-    return "iOS";
-  }
-  if (/Win/i.test(userAgent)) {
-    return "Windows";
-  }
-  if (/Mac/i.test(userAgent)) {
-    return "Mac OS";
-  }
-  if (/Linux/i.test(userAgent)) {
-    return "Linux";
-  }
+  if (/android/i.test(userAgent)) return "Android";
+  if (/iPhone|iPad|iPod/i.test(userAgent)) return "iOS";
+  if (/Win/i.test(userAgent)) return "Windows";
+  if (/Mac/i.test(userAgent)) return "Mac OS";
+  if (/Linux/i.test(userAgent)) return "Linux";
 
   return "Web / PC";
 }
 
-// ---------------------------------------------------------
-// 🎫 Ticket-ID Generator
-// ---------------------------------------------------------
 function generateTicketId() {
   return "LUNA-" + Date.now();
 }
 
+// ⭐ Hilfsfunktion: Sicheres Erstellen des MongoDB-Suchfilters
+function getTicketFilter(idParam) {
+  if (mongoose.Types.ObjectId.isValid(idParam)) {
+    return { $or: [{ ticketId: idParam }, { _id: idParam }] };
+  }
+  return { ticketId: idParam };
+}
+
 // ---------------------------------------------------------
-// ➕ NEU: Ticket erstellen (Sammelt Daten wie Android, iOS, WhatsApp)
+// ➕ Ticket erstellen
 // ---------------------------------------------------------
 app.post("/tickets", async (req, res) => {
   try {
@@ -70,7 +66,6 @@ app.post("/tickets", async (req, res) => {
       return res.status(400).json({ error: "E-Mail und Nachrichtentext sind erforderlich." });
     }
 
-    // Automatische Systemerkennung aus dem Request-Header oder Payload
     const detectedOS = detectDeviceOS(req, os || platform);
     const userAgentHeader = req.headers["user-agent"] || "Unbekannt";
 
@@ -78,10 +73,10 @@ app.post("/tickets", async (req, res) => {
       ticketId: generateTicketId(),
       from: senderEmail,
       text: bodyText,
+      message: bodyText,
       subject: subject || "Luna Support Anfrage",
       status: "open",
       date: new Date(),
-      // 📱 Erfasste Systemdaten:
       os: detectedOS,
       source: source || (isWhatsapp ? "WhatsApp" : "Webformular"),
       isWhatsapp: Boolean(isWhatsapp),
@@ -116,9 +111,8 @@ app.get("/tickets", async (req, res) => {
 // ---------------------------------------------------------
 app.get("/tickets/:id", async (req, res) => {
   try {
-    const ticket = await Ticket.findOne({
-      $or: [{ ticketId: req.params.id }, { _id: req.params.id }]
-    });
+    const filter = getTicketFilter(req.params.id);
+    const ticket = await Ticket.findOne(filter);
 
     if (!ticket) return res.status(404).json({ error: "Ticket nicht gefunden" });
     res.json(ticket);
@@ -133,14 +127,14 @@ app.get("/tickets/:id", async (req, res) => {
 // ---------------------------------------------------------
 app.post("/tickets/:id/processing", async (req, res) => {
   try {
-    const ticket = await Ticket.findOne({
-      $or: [{ ticketId: req.params.id }, { _id: req.params.id }]
-    });
+    const filter = getTicketFilter(req.params.id);
+    const ticket = await Ticket.findOneAndUpdate(
+      filter, 
+      { status: "processing" }, 
+      { new: true }
+    );
 
     if (!ticket) return res.status(404).json({ error: "Ticket nicht gefunden" });
-
-    ticket.status = "processing";
-    await ticket.save();
 
     res.json({ success: true, status: "processing" });
   } catch (err) {
@@ -154,14 +148,14 @@ app.post("/tickets/:id/processing", async (req, res) => {
 // ---------------------------------------------------------
 app.post("/tickets/:id/close", async (req, res) => {
   try {
-    const ticket = await Ticket.findOne({
-      $or: [{ ticketId: req.params.id }, { _id: req.params.id }]
-    });
+    const filter = getTicketFilter(req.params.id);
+    const ticket = await Ticket.findOneAndUpdate(
+      filter, 
+      { status: "closed" }, 
+      { new: true }
+    );
 
     if (!ticket) return res.status(404).json({ error: "Ticket nicht gefunden" });
-
-    ticket.status = "closed";
-    await ticket.save();
 
     // MailWatcher informieren
     try {
@@ -191,14 +185,14 @@ app.post("/tickets/:id/close", async (req, res) => {
 // ---------------------------------------------------------
 app.post("/tickets/:id/open", async (req, res) => {
   try {
-    const ticket = await Ticket.findOne({
-      $or: [{ ticketId: req.params.id }, { _id: req.params.id }]
-    });
+    const filter = getTicketFilter(req.params.id);
+    const ticket = await Ticket.findOneAndUpdate(
+      filter, 
+      { status: "open" }, 
+      { new: true }
+    );
 
     if (!ticket) return res.status(404).json({ error: "Ticket nicht gefunden" });
-
-    ticket.status = "open";
-    await ticket.save();
 
     res.json({ success: true, status: "open" });
   } catch (err) {
@@ -212,9 +206,8 @@ app.post("/tickets/:id/open", async (req, res) => {
 // ---------------------------------------------------------
 app.delete("/tickets/:id", async (req, res) => {
   try {
-    const ticket = await Ticket.findOneAndDelete({
-      $or: [{ _id: req.params.id }, { ticketId: req.params.id }]
-    });
+    const filter = getTicketFilter(req.params.id);
+    const ticket = await Ticket.findOneAndDelete(filter);
 
     if (!ticket) {
       return res.status(404).json({ error: "Ticket nicht gefunden" });
@@ -255,7 +248,7 @@ app.post("/tickets/:id/reply", async (req, res) => {
 });
 
 // ---------------------------------------------------------
-// ❤️ Healthcheck für Render
+// ❤️ Healthcheck
 // ---------------------------------------------------------
 app.get("/health", (req, res) => {
   res.status(200).send("OK");
