@@ -60,15 +60,13 @@ function getClientIp(req) {
   return req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
 }
 
-// In-Memory Speicher für IP-zu-Account Tracking (Missbrauchs-Schutz)
-const ipAccountTracker = new Map();
-
 // ---------------------------------------------------------
-// 👤 User Schema & Auth-Modell
+// 👤 User Schema & Auth-Modell (mit Geräte-ID Bindung)
 // ---------------------------------------------------------
 const userSchema = new mongoose.Schema({
   username: { type: String, required: true, unique: true },
-  password: { type: String, required: true }
+  password: { type: String, required: true },
+  deviceId: { type: String, default: "" } // <--- Speichert die eindeutige Browser-ID des Laptops
 });
 
 const User = mongoose.model("User", userSchema);
@@ -79,20 +77,41 @@ const User = mongoose.model("User", userSchema);
 
 app.post("/api/auth/register", async (req, res) => {
   try {
-    const { username, password } = req.body;
+    const { username, password, deviceId } = req.body;
+    
     if (!username || !password) {
       return res.status(400).json({ error: "Benutzername und Passwort erforderlich." });
     }
 
-    const existingUser = await User.findOne({ username });
+    if (!deviceId) {
+      return res.status(400).json({ error: "Geräte-ID fehlt." });
+    }
+
+    // 1. Prüfen, ob DIESES GERÄT bereits für einen ANDEREN Account registriert wurde
+    const existingDeviceUser = await User.findOne({ deviceId });
+    if (existingDeviceUser && existingDeviceUser.username !== username) {
+      return res.status(403).json({ 
+        error: "Dieses Gerät wurde bereits für einen anderen Account verwendet! Pro Gerät ist nur ein Account erlaubt." 
+      });
+    }
+
+    // 2. Prüfen, ob der Benutzername schon vergeben ist
+    let existingUser = await User.findOne({ username });
     if (existingUser) {
+      // Falls der Nutzer exisitiert, aber die Device-ID noch nicht gesetzt war, verknüpfen
+      if (!existingUser.deviceId) {
+        existingUser.deviceId = deviceId;
+        await existingUser.save();
+        return res.status(200).json({ success: true, message: "Account erfolgreich verknüpft." });
+      }
       return res.status(400).json({ error: "Benutzername ist bereits vergeben." });
     }
 
-    const newUser = new User({ username, password });
+    // 3. Neuen User mit Geräte-ID anlegen
+    const newUser = new User({ username, password, deviceId });
     await newUser.save();
     
-    console.log(`👤 Neuer User registriert: ${username}`);
+    console.log(`👤 Neuer User registriert: ${username} (Gerät: ${deviceId})`);
     res.status(201).json({ success: true, message: "Erfolgreich registriert" });
   } catch (err) {
     console.error("❌ Registrierungsfehler:", err);
@@ -133,29 +152,14 @@ app.get("/api/auth/me", async (req, res) => {
       return res.status(404).json({ error: "User nicht gefunden" });
     }
 
-    const clientIp = getClientIp(req);
-    let abuseDetected = false;
-    let fakeName = "";
-
-    // Prüfen, ob diese IP bereits mit einem *anderen* Account verknüpft ist
-    if (ipAccountTracker.has(clientIp)) {
-      const registeredUserForIp = ipAccountTracker.get(clientIp);
-      if (registeredUserForIp !== user.username) {
-        abuseDetected = true;
-        fakeName = user.username;
-      }
-    } else {
-      ipAccountTracker.set(clientIp, user.username);
-    }
-
     res.json({ 
       success: true, 
       data: { 
         username: user.username,
         name: user.username,
-        abuseDetected: abuseDetected,
-        isBlocked: abuseDetected,
-        fakeName: fakeName
+        abuseDetected: false,
+        isBlocked: false,
+        fakeName: ""
       } 
     });
   } catch (err) {
@@ -466,28 +470,10 @@ app.get("/api/blacklist/my", async (req, res) => {
 app.post("/api/blacklist", async (req, res) => {
   try {
     const { fan, number, reason } = req.body;
-    const clientIp = getClientIp(req);
 
     if (!fan || !number) {
       return res.status(400).json({ error: "Vorname und Nummer sind erforderlich." });
     }
-
-    // --- MISSBRAUCHS- & IP-SCHUTZ PRÜFUNG ---
-    if (ipAccountTracker.has(clientIp)) {
-      const registeredUserForIp = ipAccountTracker.get(clientIp);
-      if (registeredUserForIp !== fan) {
-        console.warn(`🚨 Missbrauch erkannt! IP ${clientIp} versuchte unter '${fan}' statt '${registeredUserForIp}' zu agieren.`);
-        return res.status(403).json({ 
-          error: "Missbrauch erkannt!", 
-          abuseDetected: true, 
-          realName: registeredUserForIp, 
-          fakeName: fan 
-        });
-      }
-    } else {
-      ipAccountTracker.set(clientIp, fan);
-    }
-    // ---------------------------------------
 
     // --- DOPPELTER EINTRAG SCHUTZ ---
     const existingEntry = await Blacklist.findOne({ fan: fan, number: number });
