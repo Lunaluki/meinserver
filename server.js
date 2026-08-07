@@ -3,8 +3,8 @@ import mongoose from "mongoose";
 import cors from "cors";
 import dotenv from "dotenv";
 import Ticket from "./models/ticket.js";
+import Blacklist from "./models/blacklist.js";
 import fetch from "node-fetch";
-import Blacklist from "./models/blacklist.js"; // <-- HIER HINZUFÜGEN
 
 dotenv.config();
 
@@ -12,7 +12,7 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
-// 🔗 MailWatcher URL über Environment Variable oder Fallback (z.B. Port 3002)
+// 🔗 MailWatcher URL über Environment Variable oder Fallback
 const MAILWATCHER = process.env.MAILWATCHER_URL || "https://masters-plants-mia-ten.trycloudflare.com";
 
 // ---------------------------------------------------------
@@ -45,7 +45,6 @@ function generateTicketId() {
   return "LUNA-" + Date.now();
 }
 
-// ⭐ Hilfsfunktion: Sicheres Erstellen des MongoDB-Suchfilters
 function getTicketFilter(idParam) {
   if (mongoose.Types.ObjectId.isValid(idParam)) {
     return { $or: [{ ticketId: idParam }, { _id: idParam }] };
@@ -54,19 +53,84 @@ function getTicketFilter(idParam) {
 }
 
 // ---------------------------------------------------------
-// 🚫 Blacklist Schema & Modell
+// 👤 User Schema & Auth-Modell
 // ---------------------------------------------------------
-const blacklistSchema = new mongoose.Schema({
-  fan: { type: String, required: true },
-  number: { type: String, required: true },
-  reason: { type: String },
-  date: { type: Date, default: Date.now }
+const userSchema = new mongoose.Schema({
+  username: { type: String, required: true, unique: true },
+  password: { type: String, required: true }
 });
 
-const Blacklist = mongoose.model("Blacklist", blacklistSchema);
+const User = mongoose.model("User", userSchema);
 
 // ---------------------------------------------------------
-// 🌐 HTML Status-Seite (für Cron-Jobs & Browser)
+// 🔐 AUTH ROUTEN (Login, Register, Me)
+// ---------------------------------------------------------
+
+app.post("/api/auth/register", async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    if (!username || !password) {
+      return res.status(400).json({ error: "Benutzername und Passwort erforderlich." });
+    }
+
+    const existingUser = await User.findOne({ username });
+    if (existingUser) {
+      return res.status(400).json({ error: "Benutzername ist bereits vergeben." });
+    }
+
+    const newUser = new User({ username, password });
+    await newUser.save();
+    
+    console.log(`👤 Neuer User registriert: ${username}`);
+    res.status(201).json({ success: true, message: "Erfolgreich registriert" });
+  } catch (err) {
+    console.error("❌ Registrierungsfehler:", err);
+    res.status(500).json({ error: "Fehler bei der Registrierung" });
+  }
+});
+
+app.post("/api/auth/login", async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    const user = await User.findOne({ username, password });
+
+    if (!user) {
+      return res.status(400).json({ error: "Falscher Benutzername oder Passwort." });
+    }
+
+    const token = user._id.toString();
+    console.log(`🔑 User eingeloggt: ${username}`);
+    
+    res.json({ success: true, token, username: user.username });
+  } catch (err) {
+    console.error("❌ Login-Fehler:", err);
+    res.status(500).json({ error: "Login fehlgeschlagen" });
+  }
+});
+
+app.get("/api/auth/me", async (req, res) => {
+  try {
+    const authHeader = req.headers["authorization"];
+    const token = authHeader && authHeader.split(" ")[1];
+
+    if (!token || !mongoose.Types.ObjectId.isValid(token)) {
+      return res.status(401).json({ error: "Nicht eingeloggt" });
+    }
+
+    const user = await User.findById(token);
+    if (!user) {
+      return res.status(404).json({ error: "User nicht gefunden" });
+    }
+
+    res.json({ success: true, data: { username: user.username } });
+  } catch (err) {
+    console.error("❌ Auth-Me Fehler:", err);
+    res.status(500).json({ error: "Fehler beim Laden des Users" });
+  }
+});
+
+// ---------------------------------------------------------
+// 🌐 HTML Status-Seite
 // ---------------------------------------------------------
 app.get("/", (req, res) => {
   res.status(200).send(`
@@ -240,7 +304,6 @@ app.post("/tickets/:id/close", async (req, res) => {
 
     if (!ticket) return res.status(404).json({ error: "Ticket nicht gefunden" });
 
-    // MailWatcher informieren
     try {
       await fetch(`${MAILWATCHER}/ticket-closed`, {
         method: "POST",
@@ -331,7 +394,7 @@ app.post("/tickets/:id/reply", async (req, res) => {
 });
 
 // ---------------------------------------------------------
-// 🚫 Blacklist Routen (Neu hinzugefügt)
+// 🚫 Blacklist Routen
 // ---------------------------------------------------------
 app.get("/api/blacklist", async (req, res) => {
   try {
