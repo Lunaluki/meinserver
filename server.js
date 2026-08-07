@@ -12,7 +12,7 @@ app.use(express.json());
 app.use(cors());
 
 // 🔗 MailWatcher URL über Environment Variable oder Fallback (z.B. Port 3002)
-const MAILWATCHER = process.env.MAILWATCHER_URL || "http://localhost:3002";
+const MAILWATCHER = process.env.MAILWATCHER_URL || "http://localhost:3001";
 
 // ---------------------------------------------------------
 // 🗄️ MongoDB Verbindung
