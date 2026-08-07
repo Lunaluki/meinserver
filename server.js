@@ -406,7 +406,6 @@ app.get("/api/blacklist", async (req, res) => {
   }
 });
 
-// Neu: Route um zu sehen, was der eingeloggte User gemeldet hat (falls dein Frontend das aufruft)
 app.get("/api/blacklist/my", async (req, res) => {
   try {
     const authHeader = req.headers["authorization"];
@@ -421,7 +420,6 @@ app.get("/api/blacklist/my", async (req, res) => {
       return res.status(404).json({ error: "User nicht gefunden" });
     }
 
-    // Finde alle Einträge, die von diesem User (username oder name) gemeldet wurden
     const list = await Blacklist.find({ fan: user.username }).sort({ date: -1 });
     res.json(list);
   } catch (err) {
@@ -439,7 +437,6 @@ app.post("/api/blacklist", async (req, res) => {
     }
 
     // --- DOPPELTER EINTRAG SCHUTZ ---
-    // Prüfen, ob dieser User diese Nummer bereits gemeldet hat
     const existingEntry = await Blacklist.findOne({ fan: fan, number: number });
     if (existingEntry) {
       return res.status(400).json({ error: "Du hast diese Nummer bereits gemeldet!" });
@@ -459,6 +456,21 @@ app.post("/api/blacklist", async (req, res) => {
   } catch (err) {
     console.error("❌ Fehler beim Speichern der Blacklist:", err);
     res.status(500).json({ error: "Fehler beim Speichern der Nummer" });
+  }
+});
+
+// NEU: Blacklist-Eintrag löschen
+app.delete("/api/blacklist/:id", async (req, res) => {
+  try {
+    const entry = await Blacklist.findByIdAndDelete(req.params.id);
+    if (!entry) {
+      return res.status(404).json({ error: "Blacklist-Eintrag nicht gefunden" });
+    }
+    console.log(`🗑️ Blacklist-Nummer gelöscht: ${entry.number}`);
+    res.json({ success: true, message: "Eintrag erfolgreich gelöscht" });
+  } catch (err) {
+    console.error("❌ Fehler beim Löschen des Blacklist-Eintrags:", err);
+    res.status(500).json({ error: "Fehler beim Löschen" });
   }
 });
 
