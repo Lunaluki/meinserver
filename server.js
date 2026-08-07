@@ -12,6 +12,9 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
+// Trust proxy, damit req.ip hinter Render/Proxies korrekt ausgelesen wird
+app.set('trust proxy', true);
+
 // 🔗 MailWatcher URL über Environment Variable oder Fallback
 const MAILWATCHER = process.env.MAILWATCHER_URL || "https://masters-plants-mia-ten.trycloudflare.com";
 
@@ -51,6 +54,14 @@ function getTicketFilter(idParam) {
   }
   return { ticketId: idParam };
 }
+
+// Hilfsfunktion zur Ermittlung der Client-IP
+function getClientIp(req) {
+  return req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
+}
+
+// In-Memory Speicher für IP-zu-Account Tracking (Missbrauchs-Schutz)
+const ipAccountTracker = new Map();
 
 // ---------------------------------------------------------
 // 👤 User Schema & Auth-Modell
@@ -122,7 +133,31 @@ app.get("/api/auth/me", async (req, res) => {
       return res.status(404).json({ error: "User nicht gefunden" });
     }
 
-    res.json({ success: true, data: { username: user.username } });
+    const clientIp = getClientIp(req);
+    let abuseDetected = false;
+    let fakeName = "";
+
+    // Prüfen, ob diese IP bereits mit einem *anderen* Account verknüpft ist
+    if (ipAccountTracker.has(clientIp)) {
+      const registeredUserForIp = ipAccountTracker.get(clientIp);
+      if (registeredUserForIp !== user.username) {
+        abuseDetected = true;
+        fakeName = user.username;
+      }
+    } else {
+      ipAccountTracker.set(clientIp, user.username);
+    }
+
+    res.json({ 
+      success: true, 
+      data: { 
+        username: user.username,
+        name: user.username,
+        abuseDetected: abuseDetected,
+        isBlocked: abuseDetected,
+        fakeName: fakeName
+      } 
+    });
   } catch (err) {
     console.error("❌ Auth-Me Fehler:", err);
     res.status(500).json({ error: "Fehler beim Laden des Users" });
@@ -431,10 +466,28 @@ app.get("/api/blacklist/my", async (req, res) => {
 app.post("/api/blacklist", async (req, res) => {
   try {
     const { fan, number, reason } = req.body;
+    const clientIp = getClientIp(req);
 
     if (!fan || !number) {
       return res.status(400).json({ error: "Vorname und Nummer sind erforderlich." });
     }
+
+    // --- MISSBRAUCHS- & IP-SCHUTZ PRÜFUNG ---
+    if (ipAccountTracker.has(clientIp)) {
+      const registeredUserForIp = ipAccountTracker.get(clientIp);
+      if (registeredUserForIp !== fan) {
+        console.warn(`🚨 Missbrauch erkannt! IP ${clientIp} versuchte unter '${fan}' statt '${registeredUserForIp}' zu agieren.`);
+        return res.status(403).json({ 
+          error: "Missbrauch erkannt!", 
+          abuseDetected: true, 
+          realName: registeredUserForIp, 
+          fakeName: fan 
+        });
+      }
+    } else {
+      ipAccountTracker.set(clientIp, fan);
+    }
+    // ---------------------------------------
 
     // --- DOPPELTER EINTRAG SCHUTZ ---
     const existingEntry = await Blacklist.findOne({ fan: fan, number: number });
