@@ -2,6 +2,9 @@ import express from "express";
 import mongoose from "mongoose";
 import cors from "cors";
 import dotenv from "dotenv";
+import multer from "multer";
+import path from "path";
+import fs from "fs";
 import Ticket from "./models/ticket.js";
 import Blacklist from "./models/blacklist.js";
 import fetch from "node-fetch";
@@ -17,6 +20,26 @@ app.set('trust proxy', true);
 
 // 🔗 MailWatcher URL über Environment Variable oder Fallback
 const MAILWATCHER = process.env.MAILWATCHER_URL || "https://masters-plants-mia-ten.trycloudflare.com";
+
+// 📂 Sicherstellen, dass der Upload-Ordner existiert
+const uploadDir = "uploads";
+if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir);
+}
+
+// 📸 Öffentlichen Zugriff auf den Ordner "uploads" erlauben
+app.use('/uploads', express.static('uploads'));
+
+// 🛠️ Multer Konfiguration für Datei-Uploads
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        cb(null, 'uploads/');
+    },
+    filename: (req, file, cb) => {
+        cb(null, Date.now() + '-' + file.originalname);
+    }
+});
+const upload = multer({ storage: storage });
 
 // ---------------------------------------------------------
 // 🗄️ MongoDB Verbindung
@@ -55,18 +78,13 @@ function getTicketFilter(idParam) {
   return { ticketId: idParam };
 }
 
-// Hilfsfunktion zur Ermittlung der Client-IP
-function getClientIp(req) {
-  return req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
-}
-
 // ---------------------------------------------------------
 // 👤 User Schema & Auth-Modell (mit Geräte-ID Bindung)
 // ---------------------------------------------------------
 const userSchema = new mongoose.Schema({
   username: { type: String, required: true, unique: true },
   password: { type: String, required: true },
-  deviceId: { type: String, default: "" } // <--- Speichert die eindeutige Browser-ID des Laptops
+  deviceId: { type: String, default: "" }
 });
 
 const User = mongoose.model("User", userSchema);
@@ -87,7 +105,6 @@ app.post("/api/auth/register", async (req, res) => {
       return res.status(400).json({ error: "Geräte-ID fehlt." });
     }
 
-    // 1. Prüfen, ob DIESES GERÄT bereits für einen ANDEREN Account registriert wurde
     const existingDeviceUser = await User.findOne({ deviceId });
     if (existingDeviceUser && existingDeviceUser.username !== username) {
       return res.status(403).json({ 
@@ -95,10 +112,8 @@ app.post("/api/auth/register", async (req, res) => {
       });
     }
 
-    // 2. Prüfen, ob der Benutzername schon vergeben ist
     let existingUser = await User.findOne({ username });
     if (existingUser) {
-      // Falls der Nutzer exisitiert, aber die Device-ID noch nicht gesetzt war, verknüpfen
       if (!existingUser.deviceId) {
         existingUser.deviceId = deviceId;
         await existingUser.save();
@@ -107,7 +122,6 @@ app.post("/api/auth/register", async (req, res) => {
       return res.status(400).json({ error: "Benutzername ist bereits vergeben." });
     }
 
-    // 3. Neuen User mit Geräte-ID anlegen
     const newUser = new User({ username, password, deviceId });
     await newUser.save();
     
@@ -433,11 +447,11 @@ app.post("/tickets/:id/reply", async (req, res) => {
 });
 
 // ---------------------------------------------------------
-// 🚫 Blacklist Routen
+// 🚫 Blacklist Routen (mit Screenshot-Upload Unterstützung)
 // ---------------------------------------------------------
 app.get("/api/blacklist", async (req, res) => {
   try {
-    const list = await Blacklist.find().sort({ date: -1 });
+    const list = await Blacklist.find().sort({ createdAt: -1 });
     res.json(list);
   } catch (err) {
     console.error("❌ Fehler beim Laden der Blacklist:", err);
@@ -459,7 +473,7 @@ app.get("/api/blacklist/my", async (req, res) => {
       return res.status(404).json({ error: "User nicht gefunden" });
     }
 
-    const list = await Blacklist.find({ fan: user.username }).sort({ date: -1 });
+    const list = await Blacklist.find({ fan: user.username }).sort({ createdAt: -1 });
     res.json(list);
   } catch (err) {
     console.error("❌ Fehler beim Laden der persönlichen Blacklist:", err);
@@ -467,7 +481,7 @@ app.get("/api/blacklist/my", async (req, res) => {
   }
 });
 
-app.post("/api/blacklist", async (req, res) => {
+app.post("/api/blacklist", upload.array('screenshots', 5), async (req, res) => {
   try {
     const { fan, number, reason } = req.body;
 
@@ -475,17 +489,35 @@ app.post("/api/blacklist", async (req, res) => {
       return res.status(400).json({ error: "Vorname und Nummer sind erforderlich." });
     }
 
+    const screenshotPaths = req.files ? req.files.map(file => `uploads/${file.filename}`) : [];
+
     // --- DOPPELTER EINTRAG SCHUTZ ---
-    const existingEntry = await Blacklist.findOne({ fan: fan, number: number });
+    let existingEntry = await Blacklist.findOne({ number: number });
+    
     if (existingEntry) {
-      return res.status(400).json({ error: "Du hast diese Nummer bereits gemeldet!" });
+      if (existingEntry.reporters && existingEntry.reporters.includes(fan)) {
+        return res.status(400).json({ error: "Du hast diese Nummer bereits gemeldet!" });
+      }
+
+      existingEntry.count += 1;
+      if (existingEntry.reporters) {
+        existingEntry.reporters.push(fan);
+      }
+      if (screenshotPaths.length > 0) {
+        existingEntry.screenshots.push(...screenshotPaths);
+      }
+      await existingEntry.save();
+      console.log(`🚫 Blacklist-Nummer aktualisiert (${number}) von ${fan}`);
+      return res.status(200).json({ success: true, entry: existingEntry });
     }
-    // ---------------------------------
 
     const newEntry = new Blacklist({
       fan,
       number,
-      reason: reason || "Kein Grund angegeben"
+      reason: reason || "Kein Grund angegeben",
+      screenshots: screenshotPaths,
+      count: 1,
+      reporters: [fan]
     });
 
     await newEntry.save();
@@ -498,7 +530,7 @@ app.post("/api/blacklist", async (req, res) => {
   }
 });
 
-// NEU: Blacklist-Eintrag löschen
+// Blacklist-Eintrag löschen
 app.delete("/api/blacklist/:id", async (req, res) => {
   try {
     const entry = await Blacklist.findByIdAndDelete(req.params.id);
