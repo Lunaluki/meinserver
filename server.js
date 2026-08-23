@@ -19,7 +19,7 @@ app.use(cors());
 app.set('trust proxy', true);
 
 // 🔗 MailWatcher URL über Environment Variable oder Fallback
-const MAILWATCHER = process.env.MAILWATCHER_URL || "https://satisfy-friend-manufactured-constraints.trycloudflare.com";
+const MAILWATCHER = process.env.MAILWATCHER_URL || "https://convenience-humor-beam-occasional.trycloudflare.com";
 
 // 📂 Sicherstellen, dass der Upload-Ordner existiert
 const uploadDir = "uploads";
