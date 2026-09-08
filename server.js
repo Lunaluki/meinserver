@@ -25,7 +25,7 @@ mongoose.connect(MONGO_URI)
   .then(() => console.log("✅ MongoDB erfolgreich verbunden"))
   .catch(err => console.error("❌ MongoDB Verbindungsfehler:", err));
 
-// 📄 Blacklist Schema
+// 📄 Blacklist Schema (Exakt nach deiner Vorlage)
 const blacklistSchema = new mongoose.Schema({
   fan: { type: String, required: true },
   number: { type: String, required: true, index: true },
@@ -38,14 +38,23 @@ const blacklistSchema = new mongoose.Schema({
 });
 const Blacklist = mongoose.models.Blacklist || mongoose.model("Blacklist", blacklistSchema);
 
-// 📄 Ticket Schema
+// 📄 Ticket Schema (Exakt nach deiner Vorlage)
 const ticketSchema = new mongoose.Schema({
   ticketId: { type: String, required: true, unique: true },
   from: { type: String, required: true },
-  subject: { type: String, default: "Luna Support Anfrage" },
-  text: { type: String, required: true },
-  status: { type: String, default: "open" }, // "open" oder "closed"
-  date: { type: Date, default: Date.now }
+  subject: { type: String, required: true, default: "Luna Support Anfrage" },
+  message: { type: String },
+  text: { type: String },
+  date: { type: Date, default: Date.now },
+  status: { 
+    type: String, 
+    enum: ["open", "processing", "closed"], 
+    default: "open" 
+  },
+  os: { type: String, default: "Unbekannt" },
+  source: { type: String, default: "Webformular" },
+  isWhatsapp: { type: Boolean, default: false },
+  userAgent: { type: String, default: "Unbekannt" }
 });
 const Ticket = mongoose.models.Ticket || mongoose.model("Ticket", ticketSchema);
 
@@ -75,6 +84,7 @@ app.get("/tickets", async (req, res) => {
     const tickets = await Ticket.find().sort({ date: -1 });
     res.json(tickets);
   } catch (err) {
+    console.error("❌ Fehler beim Laden der Tickets:", err);
     res.status(500).json({ error: "Fehler beim Laden der Tickets" });
   }
 });
@@ -95,7 +105,6 @@ app.post("/tickets/:id/:action", async (req, res) => {
       return res.status(404).json({ error: "Ticket nicht gefunden" });
     }
 
-    // Sofort via WebSocket an alle offenen Admin-Dashboards senden!
     io.emit("ticketUpdated", updatedTicket);
     res.json({ success: true, updatedTicket });
   } catch (err) {
@@ -145,23 +154,27 @@ app.post("/admin-reply", async (req, res) => {
   }
 });
 
-// Beispiel-Route zum Erstellen eines Tickets
+// Ticket erstellen
 app.post("/tickets", async (req, res) => {
   try {
-    const { ticketId, from, subject, text } = req.body;
+    const { ticketId, from, subject, message, text, os, source, isWhatsapp, userAgent } = req.body;
     const newTicket = new Ticket({
       ticketId: ticketId || `TID-${Date.now()}`,
       from,
-      subject,
-      text
+      subject: subject || "Luna Support Anfrage",
+      message: message || text,
+      text: text || message,
+      os,
+      source,
+      isWhatsapp,
+      userAgent
     });
     const savedTicket = await newTicket.save();
 
-    // ⚡ Direkt an alle verbundenen Admins streamen!
     io.emit("newTicket", savedTicket);
-
     res.status(201).json(savedTicket);
   } catch (err) {
+    console.error("❌ Fehler beim Erstellen:", err);
     res.status(500).json({ error: "Fehler beim Erstellen des Tickets" });
   }
 });
