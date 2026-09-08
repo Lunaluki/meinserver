@@ -7,8 +7,8 @@ import path from "path";
 import { fileURLToPath } from "url";
 
 // 📂 Modelle importieren (Pfad anpassen, falls dein Ordner anders heißt, z.B. "./models/Ticket.js")
-import Ticket from "./modules/ticket.js"; 
-import Blacklist from "./modules/blacklist.js";
+import Ticket from "./models/ticket.js"; 
+import Blacklist from "./models/blacklist.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
