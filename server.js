@@ -83,6 +83,29 @@ app.post("/tickets/:id/:action", async (req, res) => {
   }
 });
 
+// 2.5 Ticket Status auf "processing" (In Bearbeitung) setzen
+app.patch("/tickets/:id/process", async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const updatedTicket = await Ticket.findOneAndUpdate(
+      { $or: [{ ticketId: id }, { _id: mongoose.isValidObjectId(id) ? id : null }] },
+      { status: "processing" },
+      { new: true }
+    );
+
+    if (!updatedTicket) {
+      return res.status(404).json({ error: "Ticket nicht gefunden" });
+    }
+
+    io.emit("ticketUpdated", updatedTicket);
+    res.json({ success: true, updatedTicket });
+  } catch (err) {
+    console.error("❌ Fehler beim Setzen auf Processing:", err);
+    res.status(500).json({ error: "Fehler beim Aktualisieren" });
+  }
+});
+
 // 3. Ticket löschen
 app.delete("/tickets/:id", async (req, res) => {
   try {
