@@ -6,7 +6,7 @@ import { Server } from "socket.io";
 import path from "path";
 import { fileURLToPath } from "url";
 
-// 📂 Modelle importieren (Pfad anpassen, falls dein Ordner anders heißt, z.B. "./models/Ticket.js")
+// 📂 Modelle importieren
 import Ticket from "./models/ticket.js"; 
 import Blacklist from "./models/blacklist.js";
 
@@ -48,6 +48,48 @@ io.on("connection", (socket) => {
 app.get("/admin", (req, res) => {
   res.sendFile(path.join(__dirname, "admin.html"));
 });
+
+// =========================================================
+// 🏴‍☠️ BLACKLIST ROUTES (Neu hinzugefügt)
+// =========================================================
+
+// 1. Alle Blacklist-Einträge abrufen
+app.get("/api/blacklist", async (req, res) => {
+  try {
+    const entries = await Blacklist.find().sort({ createdAt: -1 });
+    res.json(entries);
+  } catch (err) {
+    console.error("❌ Fehler beim Laden der Blacklist:", err);
+    res.status(500).json({ error: "Fehler beim Laden aus der Datenbank" });
+  }
+});
+
+// 2. Neue Nummer zur Blacklist hinzufügen
+app.post("/api/blacklist", async (req, res) => {
+  try {
+    const { number, reason, fan } = req.body;
+    
+    if (!number) {
+      return res.status(400).json({ error: "Nummer fehlt!" });
+    }
+
+    const newEntry = new Blacklist({
+      number,
+      reason: reason || "Kein Grund angegeben",
+      reportedBy: fan || "Unbekannt"
+    });
+
+    const savedEntry = await newEntry.save();
+    res.status(201).json({ success: true, savedEntry });
+  } catch (err) {
+    console.error("❌ Fehler beim Speichern in der Blacklist:", err);
+    res.status(500).json({ error: "Fehler beim Speichern in der Datenbank" });
+  }
+});
+
+// =========================================================
+// 🎫 TICKET ROUTES
+// =========================================================
 
 // 1. Alle Tickets abrufen
 app.get("/tickets", async (req, res) => {
