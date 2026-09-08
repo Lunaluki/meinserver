@@ -6,6 +6,10 @@ import { Server } from "socket.io";
 import path from "path";
 import { fileURLToPath } from "url";
 
+// 📂 Modelle importieren (Pfad anpassen, falls dein Ordner anders heißt, z.B. "./models/Ticket.js")
+import Ticket from "./modules/ticket.js"; 
+import Blacklist from "./modules/blacklist.js";
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -24,39 +28,6 @@ const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://Falkenauge:falkenauge@
 mongoose.connect(MONGO_URI)
   .then(() => console.log("✅ MongoDB erfolgreich verbunden"))
   .catch(err => console.error("❌ MongoDB Verbindungsfehler:", err));
-
-// 📄 Blacklist Schema (Exakt nach deiner Vorlage)
-const blacklistSchema = new mongoose.Schema({
-  fan: { type: String, required: true },
-  number: { type: String, required: true, index: true },
-  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-  reason: { type: String, default: "Kein Grund angegeben" },
-  count: { type: Number, default: 1 },
-  reporters: { type: [String], default: [] },
-  screenshots: { type: [String], default: [] },
-  createdAt: { type: Date, default: Date.now }
-});
-const Blacklist = mongoose.models.Blacklist || mongoose.model("Blacklist", blacklistSchema);
-
-// 📄 Ticket Schema (Exakt nach deiner Vorlage)
-const ticketSchema = new mongoose.Schema({
-  ticketId: { type: String, required: true, unique: true },
-  from: { type: String, required: true },
-  subject: { type: String, required: true, default: "Luna Support Anfrage" },
-  message: { type: String },
-  text: { type: String },
-  date: { type: Date, default: Date.now },
-  status: { 
-    type: String, 
-    enum: ["open", "processing", "closed"], 
-    default: "open" 
-  },
-  os: { type: String, default: "Unbekannt" },
-  source: { type: String, default: "Webformular" },
-  isWhatsapp: { type: Boolean, default: false },
-  userAgent: { type: String, default: "Unbekannt" }
-});
-const Ticket = mongoose.models.Ticket || mongoose.model("Ticket", ticketSchema);
 
 // 🔗 MailWatcher URL mit deinem Cloudflare-Link als Fallback
 const MAILWATCHER = process.env.MAILWATCHER_URL || "https://newspapers-reservoir-grown-joseph.trycloudflare.com";
