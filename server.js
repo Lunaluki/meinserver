@@ -19,7 +19,7 @@ app.use(cors());
 app.use(express.json());
 
 // 🔗 MongoDB Verbindung
-const MONGO_URI = process.env.MONGO_URI || "DEINE_MONGODB_CONNECTION_STRING";
+const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://Falkenauge:falkenauge@cluster0.doogtcl.mongodb.net/?appName=Cluster0";
 
 mongoose.connect(MONGO_URI)
   .then(() => console.log("✅ MongoDB erfolgreich verbunden"))
