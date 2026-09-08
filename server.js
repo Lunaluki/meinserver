@@ -19,8 +19,10 @@ const io = new Server(server, {
   cors: { origin: "*" }
 });
 
+// JSON-Limit erhöht, falls mal ein Bild als Base64 hochgeladen wird
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ limit: '10mb', extended: true }));
 app.use(cors());
-app.use(express.json());
 
 // 🔗 MongoDB Verbindung
 const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://Falkenauge:falkenauge@cluster0.doogtcl.mongodb.net/";
@@ -29,7 +31,7 @@ mongoose.connect(MONGO_URI)
   .then(() => console.log("✅ MongoDB erfolgreich verbunden"))
   .catch(err => console.error("❌ MongoDB Verbindungsfehler:", err));
 
-// 🔗 MailWatcher URL mit deinem Cloudflare-Link als Fallback
+// 🔗 MailWatcher URL mit Cloudflare-Link als Fallback
 const MAILWATCHER = process.env.MAILWATCHER_URL || "https://newspapers-reservoir-grown-joseph.trycloudflare.com";
 
 // ⚡ WebSocket Verbindung für Echtzeit-Admin-Updates
@@ -50,13 +52,14 @@ app.get("/admin", (req, res) => {
 });
 
 // =========================================================
-// 🏴‍☠️ BLACKLIST ROUTES (Neu hinzugefügt)
+// 🏴‍☠️ BLACKLIST ROUTES (Inkl. Logging & Bild-Funktion)
 // =========================================================
 
 // 1. Alle Blacklist-Einträge abrufen
 app.get("/api/blacklist", async (req, res) => {
   try {
     const entries = await Blacklist.find().sort({ createdAt: -1 });
+    console.log(`📋 ${entries.length} Blacklist-Einträge aus MongoDB geladen.`);
     res.json(entries);
   } catch (err) {
     console.error("❌ Fehler beim Laden der Blacklist:", err);
@@ -64,22 +67,29 @@ app.get("/api/blacklist", async (req, res) => {
   }
 });
 
-// 2. Neue Nummer zur Blacklist hinzufügen
+// 2. Neue Nummer zur Blacklist hinzufügen (mit Bild-Unterstützung und Log)
 app.post("/api/blacklist", async (req, res) => {
   try {
-    const { number, reason, fan } = req.body;
+    const { number, reason, fan, imageUrl } = req.body;
     
     if (!number) {
-      return res.status(400).json({ error: "Nummer fehlt!" });
+      console.warn("⚠️ Blacklist-Versuch ohne Nummer abgelehnt.");
+      return res.status(400).json({ error: "Telefonnummer fehlt!" });
     }
 
     const newEntry = new Blacklist({
       number,
       reason: reason || "Kein Grund angegeben",
-      reportedBy: fan || "Unbekannt"
+      reportedBy: fan || "Unbekannt",
+      imageUrl: imageUrl || null // Optionales Bild (URL oder Base64)
     });
 
     const savedEntry = await newEntry.save();
+    console.log(`🚨 Neue Nummer zur Blacklist hinzugefügt: ${number} (Gemeldet von: ${savedEntry.reportedBy})`);
+    
+    // Optional: Über WebSockets direkt ans Dashboard senden, falls gewünscht
+    io.emit("newBlacklistEntry", savedEntry);
+
     res.status(201).json({ success: true, savedEntry });
   } catch (err) {
     console.error("❌ Fehler beim Speichern in der Blacklist:", err);
@@ -207,10 +217,11 @@ app.post("/tickets", async (req, res) => {
     });
     const savedTicket = await newTicket.save();
 
+    console.log(`🎫 Neues Ticket erstellt: ${savedTicket.ticketId} von ${from}`);
     io.emit("newTicket", savedTicket);
     res.status(201).json(savedTicket);
   } catch (err) {
-    console.error("❌ Fehler beim Erstellen:", err);
+    console.error("❌ Fehler beim Erstellen des Tickets:", err);
     res.status(500).json({ error: "Fehler beim Erstellen des Tickets" });
   }
 });
