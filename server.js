@@ -4,12 +4,16 @@ import cors from "cors";
 import dotenv from "dotenv";
 import multer from "multer";
 import path from "path";
+import { fileURLToPath } from "url";
 import fs from "fs";
 import Ticket from "./models/ticket.js";
 import Blacklist from "./models/blacklist.js";
 import fetch from "node-fetch";
 
 dotenv.config();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 app.use(express.json());
@@ -183,7 +187,7 @@ app.get("/api/auth/me", async (req, res) => {
 });
 
 // ---------------------------------------------------------
-// 🌐 HTML Status-Seite
+// 🌐 HTML Status-Seite & Admin Dashboard
 // ---------------------------------------------------------
 app.get("/", (req, res) => {
   res.status(200).send(`
@@ -250,6 +254,11 @@ app.get("/", (req, res) => {
     </body>
     </html>
   `);
+});
+
+// Admin Dashboard ausliefern
+app.get("/admin", (req, res) => {
+  res.sendFile(path.join(__dirname, "admin.html"));
 });
 
 // ---------------------------------------------------------
@@ -491,7 +500,6 @@ app.post("/api/blacklist", upload.array('screenshots', 5), async (req, res) => {
 
     const screenshotPaths = req.files ? req.files.map(file => `uploads/${file.filename}`) : [];
 
-    // --- DOPPELTER EINTRAG SCHUTZ ---
     let existingEntry = await Blacklist.findOne({ number: number });
     
     if (existingEntry) {
@@ -530,7 +538,6 @@ app.post("/api/blacklist", upload.array('screenshots', 5), async (req, res) => {
   }
 });
 
-// Blacklist-Eintrag löschen
 app.delete("/api/blacklist/:id", async (req, res) => {
   try {
     const entry = await Blacklist.findByIdAndDelete(req.params.id);
