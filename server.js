@@ -6,7 +6,7 @@ import { Server } from "socket.io";
 import path from "path";
 import { fileURLToPath } from "url";
 
-// 📂 Modelle importieren
+// 📂 Modelle importieren (Hier waren sie im alten Code!)
 import Ticket from "./models/ticket.js"; 
 import Blacklist from "./models/blacklist.js";
 
@@ -19,10 +19,23 @@ const io = new Server(server, {
   cors: { origin: "*" }
 });
 
-// JSON-Limit erhöht, falls mal ein Bild als Base64 hochgeladen wird
+// =========================================================
+// 🌐 ZENTRALE KONFIGURATION & CLOUDFLARE-LINK
+// =========================================================
+const CLOUDFLARE_URL = "https://newspapers-reservoir-grown-joseph.trycloudflare.com";
+const MAILWATCHER = process.env.MAILWATCHER_URL || CLOUDFLARE_URL;
+
+// CORS komplett öffnen (wichtig für Frontend/Backend-Kommunikation)
+app.use(cors({
+  origin: "*",
+  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"]
+}));
+app.options("*", cors()); // Preflight-Anfragen erlauben
+
+// JSON-Limit erhöht, damit auch Bilder (Base64) ohne Fehler empfangen werden
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
-app.use(cors());
 
 // 🔗 MongoDB Verbindung
 const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://Falkenauge:falkenauge@cluster0.doogtcl.mongodb.net/";
@@ -30,9 +43,6 @@ const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://Falkenauge:falkenauge@
 mongoose.connect(MONGO_URI)
   .then(() => console.log("✅ MongoDB erfolgreich verbunden"))
   .catch(err => console.error("❌ MongoDB Verbindungsfehler:", err));
-
-// 🔗 MailWatcher URL mit Cloudflare-Link als Fallback
-const MAILWATCHER = process.env.MAILWATCHER_URL || "https://newspapers-reservoir-grown-joseph.trycloudflare.com";
 
 // ⚡ WebSocket Verbindung für Echtzeit-Admin-Updates
 io.on("connection", (socket) => {
@@ -67,7 +77,7 @@ app.get("/api/blacklist", async (req, res) => {
   }
 });
 
-// 2. Neue Nummer zur Blacklist hinzufügen (mit Bild-Unterstützung und Log)
+// 2. Neue Nummer zur Blacklist hinzufügen (mit Bild-Unterstützung)
 app.post("/api/blacklist", async (req, res) => {
   try {
     const { number, reason, fan, imageUrl } = req.body;
@@ -81,15 +91,13 @@ app.post("/api/blacklist", async (req, res) => {
       number,
       reason: reason || "Kein Grund angegeben",
       reportedBy: fan || "Unbekannt",
-      imageUrl: imageUrl || null // Optionales Bild (URL oder Base64)
+      imageUrl: imageUrl || null // Bild als Base64 oder URL
     });
 
     const savedEntry = await newEntry.save();
     console.log(`🚨 Neue Nummer zur Blacklist hinzugefügt: ${number} (Gemeldet von: ${savedEntry.reportedBy})`);
     
-    // Optional: Über WebSockets direkt ans Dashboard senden, falls gewünscht
     io.emit("newBlacklistEntry", savedEntry);
-
     res.status(201).json({ success: true, savedEntry });
   } catch (err) {
     console.error("❌ Fehler beim Speichern in der Blacklist:", err);
@@ -226,8 +234,11 @@ app.post("/tickets", async (req, res) => {
   }
 });
 
-// Server starten
-const PORT = process.env.PORT || 3001;
+// =========================================================
+// LOKALER SERVER START (Port 3001)
+// =========================================================
+const PORT = 3001;
 server.listen(PORT, () => {
-  console.log(`🚀 Luna Backend läuft auf Port ${PORT}`);
+  console.log(`🚀 Luna Backend läuft lokal auf Port ${PORT}`);
+  console.log(`🌐 Aktiver Cloudflare-Link: ${CLOUDFLARE_URL}`);
 });
