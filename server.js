@@ -6,7 +6,7 @@ import { Server } from "socket.io";
 import path from "path";
 import { fileURLToPath } from "url";
 
-// 📂 Modelle importieren (Hier waren sie im alten Code!)
+// 📂 Modelle importieren
 import Ticket from "./models/ticket.js"; 
 import Blacklist from "./models/blacklist.js";
 
@@ -20,20 +20,20 @@ const io = new Server(server, {
 });
 
 // =========================================================
-// 🌐 ZENTRALE KONFIGURATION & CLOUDFLARE-LINK
+// 🌐 ZENTRALE KONFIGURATION
 // =========================================================
-const CLOUDFLARE_URL = "https://newspapers-reservoir-grown-joseph.trycloudflare.com";
-const MAILWATCHER = process.env.MAILWATCHER_URL || CLOUDFLARE_URL;
+// Holt sich den Cloudflare-Link deines Mailwatchers aus den Render-Umgebungsvariablen
+const MAILWATCHER = process.env.MAILWATCHER_URL || "";
 
-// CORS komplett öffnen (wichtig für Frontend/Backend-Kommunikation)
+// CORS komplett öffnen
 app.use(cors({
   origin: "*",
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"]
 }));
-app.options("*", cors()); // Preflight-Anfragen erlauben
+app.options("*", cors());
 
-// JSON-Limit erhöht, damit auch Bilder (Base64) ohne Fehler empfangen werden
+// JSON-Limit erhöht (für Bilder / Base64)
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
@@ -62,14 +62,12 @@ app.get("/admin", (req, res) => {
 });
 
 // =========================================================
-// 🏴‍☠️ BLACKLIST ROUTES (Inkl. Logging & Bild-Funktion)
+// 🏴‍☠️ BLACKLIST ROUTES
 // =========================================================
 
-// 1. Alle Blacklist-Einträge abrufen
 app.get("/api/blacklist", async (req, res) => {
   try {
     const entries = await Blacklist.find().sort({ createdAt: -1 });
-    console.log(`📋 ${entries.length} Blacklist-Einträge aus MongoDB geladen.`);
     res.json(entries);
   } catch (err) {
     console.error("❌ Fehler beim Laden der Blacklist:", err);
@@ -77,13 +75,11 @@ app.get("/api/blacklist", async (req, res) => {
   }
 });
 
-// 2. Neue Nummer zur Blacklist hinzufügen (mit Bild-Unterstützung)
 app.post("/api/blacklist", async (req, res) => {
   try {
     const { number, reason, fan, imageUrl } = req.body;
     
     if (!number) {
-      console.warn("⚠️ Blacklist-Versuch ohne Nummer abgelehnt.");
       return res.status(400).json({ error: "Telefonnummer fehlt!" });
     }
 
@@ -91,11 +87,11 @@ app.post("/api/blacklist", async (req, res) => {
       number,
       reason: reason || "Kein Grund angegeben",
       reportedBy: fan || "Unbekannt",
-      imageUrl: imageUrl || null // Bild als Base64 oder URL
+      imageUrl: imageUrl || null
     });
 
     const savedEntry = await newEntry.save();
-    console.log(`🚨 Neue Nummer zur Blacklist hinzugefügt: ${number} (Gemeldet von: ${savedEntry.reportedBy})`);
+    console.log(`🚨 Neue Nummer zur Blacklist hinzugefügt: ${number}`);
     
     io.emit("newBlacklistEntry", savedEntry);
     res.status(201).json({ success: true, savedEntry });
@@ -109,7 +105,6 @@ app.post("/api/blacklist", async (req, res) => {
 // 🎫 TICKET ROUTES
 // =========================================================
 
-// 1. Alle Tickets abrufen
 app.get("/tickets", async (req, res) => {
   try {
     const tickets = await Ticket.find().sort({ date: -1 });
@@ -120,7 +115,7 @@ app.get("/tickets", async (req, res) => {
   }
 });
 
-// 2. Ticket Status ändern (Schließen / Öffnen)
+// Ticket Status ändern (Schließen / Öffnen) inkl. Mailwatcher-Benachrichtigung
 app.post("/tickets/:id/:action", async (req, res) => {
   try {
     const { id, action } = req.params;
@@ -136,14 +131,28 @@ app.post("/tickets/:id/:action", async (req, res) => {
       return res.status(404).json({ error: "Ticket nicht gefunden" });
     }
 
+    // Wenn das Ticket geschlossen wird -> Mailwatcher Bescheid geben, damit er die Schließungs-Mail sendet
+    if (newStatus === "closed" && MAILWATCHER && updatedTicket.from) {
+      try {
+        await fetch(`${MAILWATCHER}/ticket-closed`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ticketId: updatedTicket.ticketId, email: updatedTicket.from })
+        });
+        console.log(`🔒 Ticket-Schließen an Mailwatcher übergeben für: ${updatedTicket.from}`);
+      } catch (mailErr) {
+        console.error("⚠️ Konnte Mailwatcher nicht erreichen für Ticket-Schließung:", mailErr.message);
+      }
+    }
+
     io.emit("ticketUpdated", updatedTicket);
     res.json({ success: true, updatedTicket });
   } catch (err) {
+    console.error("❌ Fehler beim Aktualisieren des Status:", err);
     res.status(500).json({ error: "Fehler beim Aktualisieren des Status" });
   }
 });
 
-// 2.5 Ticket Status auf "processing" (In Bearbeitung) setzen
 app.patch("/tickets/:id/process", async (req, res) => {
   try {
     const { id } = req.params;
@@ -166,7 +175,6 @@ app.patch("/tickets/:id/process", async (req, res) => {
   }
 });
 
-// 3. Ticket löschen
 app.delete("/tickets/:id", async (req, res) => {
   try {
     const { id } = req.params;
@@ -177,16 +185,21 @@ app.delete("/tickets/:id", async (req, res) => {
     io.emit("ticketDeleted", id);
     res.json({ success: true });
   } catch (err) {
+    console.error("❌ Fehler beim Löschen des Tickets:", err);
     res.status(500).json({ error: "Fehler beim Löschen des Tickets" });
   }
 });
 
-// 4. Admin Antwort an User senden
+// Admin-Antwort an den Mailwatcher weiterleiten
 app.post("/admin-reply", async (req, res) => {
   const { email, text } = req.body;
 
   if (!email || !text) {
     return res.status(400).json({ error: "Email oder Text fehlt" });
+  }
+
+  if (!MAILWATCHER) {
+    return res.status(500).json({ error: "MAILWATCHER_URL ist auf Render nicht konfiguriert" });
   }
 
   try {
@@ -208,12 +221,11 @@ app.post("/admin-reply", async (req, res) => {
   }
 });
 
-// Ticket erstellen
 app.post("/tickets", async (req, res) => {
   try {
     const { ticketId, from, subject, message, text, os, source, isWhatsapp, userAgent } = req.body;
     const newTicket = new Ticket({
-      ticketId: ticketId || `TID-${Date.now()}`,
+      ticketId: ticketId || `LUNA-${Date.now()}`,
       from,
       subject: subject || "Luna Support Anfrage",
       message: message || text,
@@ -230,15 +242,15 @@ app.post("/tickets", async (req, res) => {
     res.status(201).json(savedTicket);
   } catch (err) {
     console.error("❌ Fehler beim Erstellen des Tickets:", err);
-    res.status(500).json({ error: "Fehler beim Erstellen des Tickets" });
+    res.status(500).json({ error: "Falsche Daten oder Fehler beim Erstellen des Tickets" });
   }
 });
 
 // =========================================================
-// LOKALER SERVER START (Port 3001)
+// RENDER SERVER START (Mit dynamischem Port & '0.0.0.0')
 // =========================================================
-const PORT = 3001;
-server.listen(PORT, () => {
-  console.log(`🚀 Luna Backend läuft lokal auf Port ${PORT}`);
-  console.log(`🌐 Aktiver Cloudflare-Link: ${CLOUDFLARE_URL}`);
+const PORT = process.env.PORT || 3001;
+
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 Luna Backend läuft erfolgreich auf Port ${PORT}`);
 });
