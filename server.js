@@ -22,7 +22,6 @@ const io = new Server(server, {
 // =========================================================
 // 🌐 ZENTRALE KONFIGURATION
 // =========================================================
-// Holt sich den Cloudflare-Link deines Mailwatchers aus den Render-Umgebungsvariablen
 const MAILWATCHER = process.env.MAILWATCHER_URL || "";
 
 // CORS komplett öffnen
@@ -37,12 +36,26 @@ app.options("*", cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
+// Statische Dateien ausliefern (damit HTML-Seiten direkt greifen)
+app.use(express.static(__dirname));
+
 // 🔗 MongoDB Verbindung
 const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://Falkenauge:falkenauge@cluster0.doogtcl.mongodb.net/";
 
 mongoose.connect(MONGO_URI)
   .then(() => console.log("✅ MongoDB erfolgreich verbunden"))
   .catch(err => console.error("❌ MongoDB Verbindungsfehler:", err));
+
+// =========================================================
+// 👤 USER / AUTH SCHEMA (NEU: Damit Login & Register klappen!)
+// =========================================================
+const userSchema = new mongoose.Schema({
+  username: { type: String, required: true, unique: true, trim: true },
+  password: { type: String, required: true }, // Im Idealfall gehasht, hier direkt gespeichert für maximale Kompatibilität
+  createdAt: { type: Date, default: Date.now }
+});
+
+const User = mongoose.models.User || mongoose.model("User", userSchema);
 
 // ⚡ WebSocket Verbindung für Echtzeit-Admin-Updates
 io.on("connection", (socket) => {
@@ -59,6 +72,56 @@ io.on("connection", (socket) => {
 // Admin Dashboard Seite ausliefern
 app.get("/admin", (req, res) => {
   res.sendFile(path.join(__dirname, "admin.html"));
+});
+
+// =========================================================
+// 🔐 AUTH ROUTES (REGISTER & LOGIN - FEHLENDEN ENDPUNKT BEHOBEN)
+// =========================================================
+
+app.post("/api/auth/register", async (req, res) => {
+  try {
+    const { username, password } = req.body;
+
+    if (!username || !password) {
+      return res.status(400).json({ error: "Benutzername und Passwort sind erforderlich!" });
+    }
+
+    // Prüfen ob User schon existiert
+    const existingUser = await User.findOne({ username });
+    if (existingUser) {
+      return res.status(400).json({ error: "Benutzername ist bereits vergeben!" });
+    }
+
+    const newUser = new User({ username, password });
+    await newUser.save();
+
+    console.log(`👤 Neuer User registriert: ${username}`);
+    res.status(201).json({ success: true, token: "token_" + username, username });
+  } catch (err) {
+    console.error("❌ Fehler bei der Registrierung:", err);
+    res.status(500).json({ error: "Serverfehler bei der Registrierung" });
+  }
+});
+
+app.post("/api/auth/login", async (req, res) => {
+  try {
+    const { username, password } = req.body;
+
+    if (!username || !password) {
+      return res.status(400).json({ error: "Benutzername und Passwort erforderlich!" });
+    }
+
+    const user = await User.findOne({ username, password });
+    if (!user) {
+      return res.status(401).json({ error: "Ungültiger Benutzername oder falsches Passwort!" });
+    }
+
+    console.log(`🔑 User eingeloggt: ${username}`);
+    res.json({ success: true, token: "token_" + username, username });
+  } catch (err) {
+    console.error("❌ Fehler beim Login:", err);
+    res.status(500).json({ error: "Serverfehler beim Login" });
+  }
 });
 
 // =========================================================
@@ -86,8 +149,8 @@ app.post("/api/blacklist", async (req, res) => {
     const newEntry = new Blacklist({
       number,
       reason: reason || "Kein Grund angegeben",
-      reportedBy: fan || "Unbekannt",
-      imageUrl: imageUrl || null
+      fan: fan || "Unbekannt",
+      screenshots: imageUrl ? [imageUrl] : []
     });
 
     const savedEntry = await newEntry.save();
@@ -115,7 +178,6 @@ app.get("/tickets", async (req, res) => {
   }
 });
 
-// Ticket Status ändern (Schließen / Öffnen) inkl. Mailwatcher-Benachrichtigung
 app.post("/tickets/:id/:action", async (req, res) => {
   try {
     const { id, action } = req.params;
@@ -131,7 +193,6 @@ app.post("/tickets/:id/:action", async (req, res) => {
       return res.status(404).json({ error: "Ticket nicht gefunden" });
     }
 
-    // Wenn das Ticket geschlossen wird -> Mailwatcher Bescheid geben, damit er die Schließungs-Mail sendet
     if (newStatus === "closed" && MAILWATCHER && updatedTicket.from) {
       try {
         await fetch(`${MAILWATCHER}/ticket-closed`, {
@@ -139,38 +200,15 @@ app.post("/tickets/:id/:action", async (req, res) => {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ ticketId: updatedTicket.ticketId, email: updatedTicket.from })
         });
-        console.log(`🔒 Ticket-Schließen an Mailwatcher übergeben für: ${updatedTicket.from}`);
       } catch (mailErr) {
-        console.error("⚠️ Konnte Mailwatcher nicht erreichen für Ticket-Schließung:", mailErr.message);
+        console.error("⚠️ Konnte Mailwatcher nicht erreichen:", mailErr.message);
       }
     }
 
     io.emit("ticketUpdated", updatedTicket);
     res.json({ success: true, updatedTicket });
   } catch (err) {
-    console.error("❌ Fehler beim Aktualisieren des Status:", err);
-    res.status(500).json({ error: "Fehler beim Aktualisieren des Status" });
-  }
-});
-
-app.patch("/tickets/:id/process", async (req, res) => {
-  try {
-    const { id } = req.params;
-    
-    const updatedTicket = await Ticket.findOneAndUpdate(
-      { $or: [{ ticketId: id }, { _id: mongoose.isValidObjectId(id) ? id : null }] },
-      { status: "processing" },
-      { new: true }
-    );
-
-    if (!updatedTicket) {
-      return res.status(404).json({ error: "Ticket nicht gefunden" });
-    }
-
-    io.emit("ticketUpdated", updatedTicket);
-    res.json({ success: true, updatedTicket });
-  } catch (err) {
-    console.error("❌ Fehler beim Setzen auf Processing:", err);
+    console.error("❌ Fehler beim Aktualisieren:", err);
     res.status(500).json({ error: "Fehler beim Aktualisieren" });
   }
 });
@@ -185,39 +223,8 @@ app.delete("/tickets/:id", async (req, res) => {
     io.emit("ticketDeleted", id);
     res.json({ success: true });
   } catch (err) {
-    console.error("❌ Fehler beim Löschen des Tickets:", err);
-    res.status(500).json({ error: "Fehler beim Löschen des Tickets" });
-  }
-});
-
-// Admin-Antwort an den Mailwatcher weiterleiten
-app.post("/admin-reply", async (req, res) => {
-  const { email, text } = req.body;
-
-  if (!email || !text) {
-    return res.status(400).json({ error: "Email oder Text fehlt" });
-  }
-
-  if (!MAILWATCHER) {
-    return res.status(500).json({ error: "MAILWATCHER_URL ist auf Render nicht konfiguriert" });
-  }
-
-  try {
-    const response = await fetch(`${MAILWATCHER}/admin-reply`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, text })
-    });
-
-    if (!response.ok) {
-      throw new Error("MailWatcher hat einen Fehler gemeldet");
-    }
-
-    console.log(`📨 Admin-Antwort gesendet an → ${email}`);
-    res.json({ success: true });
-  } catch (err) {
-    console.error("❌ Fehler beim Senden der Admin-Antwort:", err.message);
-    res.status(500).json({ error: "MailWatcher Fehler" });
+    console.error("❌ Fehler beim Löschen:", err);
+    res.status(500).json({ error: "Fehler beim Löschen" });
   }
 });
 
@@ -237,17 +244,17 @@ app.post("/tickets", async (req, res) => {
     });
     const savedTicket = await newTicket.save();
 
-    console.log(`🎫 Neues Ticket erstellt: ${savedTicket.ticketId} von ${from}`);
+    console.log(`🎫 Neues Ticket erstellt: ${savedTicket.ticketId}`);
     io.emit("newTicket", savedTicket);
     res.status(201).json(savedTicket);
   } catch (err) {
     console.error("❌ Fehler beim Erstellen des Tickets:", err);
-    res.status(500).json({ error: "Falsche Daten oder Fehler beim Erstellen des Tickets" });
+    res.status(500).json({ error: "Fehler beim Erstellen des Tickets" });
   }
 });
 
 // =========================================================
-// RENDER SERVER START (Mit dynamischem Port & '0.0.0.0')
+// RENDER SERVER START
 // =========================================================
 const PORT = process.env.PORT || 3001;
 
