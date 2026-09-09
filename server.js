@@ -47,15 +47,30 @@ mongoose.connect(MONGO_URI)
   .catch(err => console.error("❌ MongoDB Verbindungsfehler:", err));
 
 // =========================================================
-// 👤 USER / AUTH SCHEMA (NEU: Damit Login & Register klappen!)
+// 👤 USER / AUTH SCHEMA & ENDPUNKTE
 // =========================================================
 const userSchema = new mongoose.Schema({
   username: { type: String, required: true, unique: true, trim: true },
-  password: { type: String, required: true }, // Im Idealfall gehasht, hier direkt gespeichert für maximale Kompatibilität
+  password: { type: String, required: true },
   createdAt: { type: Date, default: Date.now }
 });
 
 const User = mongoose.models.User || mongoose.model("User", userSchema);
+
+// 🔍 NEU: Prüfen, ob eine User-ID in der Datenbank noch existiert (für den Geräteschutz)
+app.get("/api/auth/check/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!mongoose.isValidObjectId(id)) {
+      return res.json({ exists: false });
+    }
+    const user = await User.findById(id);
+    res.json({ exists: !!user });
+  } catch (err) {
+    console.error("❌ Fehler beim Prüfen der User-ID:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
 
 // ⚡ WebSocket Verbindung für Echtzeit-Admin-Updates
 io.on("connection", (socket) => {
@@ -75,11 +90,11 @@ app.get("/admin", (req, res) => {
 });
 
 // =========================================================
-// 🔐 AUTH ROUTES (REGISTER & LOGIN - FEHLENDEN ENDPUNKT BEHOBEN)
+// 🔐 AUTH ROUTES (REGISTER & LOGIN)
 // =========================================================
 app.post("/api/auth/register", async (req, res) => {
   try {
-    const { username, password, deviceId } = req.body;
+    const { username, password } = req.body;
 
     if (!username || !password) {
       return res.status(400).json({ error: "Benutzername und Passwort sind erforderlich!" });
@@ -96,7 +111,6 @@ app.post("/api/auth/register", async (req, res) => {
 
     console.log(`👤 Neuer User registriert: ${username} (ID: ${newUser._id})`);
     
-    // Gibt die echte MongoDB ObjectId und einen Token zurück
     res.status(201).json({ 
       success: true, 
       userId: newUser._id, 
@@ -122,8 +136,8 @@ app.post("/api/auth/login", async (req, res) => {
       return res.status(401).json({ error: "Ungültiger Benutzername oder falsches Passwort!" });
     }
 
-    console.log(`🔑 User eingeloggt: ${username}`);
-    res.json({ success: true, token: "token_" + username, username });
+    console.log(`🔑 User eingeloggt: ${username} (ID: ${user._id})`);
+    res.json({ success: true, userId: user._id, token: "token_" + user._id, username });
   } catch (err) {
     console.error("❌ Fehler beim Login:", err);
     res.status(500).json({ error: "Serverfehler beim Login" });
