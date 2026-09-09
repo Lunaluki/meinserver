@@ -77,10 +77,9 @@ app.get("/admin", (req, res) => {
 // =========================================================
 // 🔐 AUTH ROUTES (REGISTER & LOGIN - FEHLENDEN ENDPUNKT BEHOBEN)
 // =========================================================
-
 app.post("/api/auth/register", async (req, res) => {
   try {
-    const { username, password } = req.body;
+    const { username, password, deviceId } = req.body;
 
     if (!username || !password) {
       return res.status(400).json({ error: "Benutzername und Passwort sind erforderlich!" });
@@ -95,8 +94,15 @@ app.post("/api/auth/register", async (req, res) => {
     const newUser = new User({ username, password });
     await newUser.save();
 
-    console.log(`👤 Neuer User registriert: ${username}`);
-    res.status(201).json({ success: true, token: "token_" + username, username });
+    console.log(`👤 Neuer User registriert: ${username} (ID: ${newUser._id})`);
+    
+    // Gibt die echte MongoDB ObjectId und einen Token zurück
+    res.status(201).json({ 
+      success: true, 
+      userId: newUser._id, 
+      token: "token_" + newUser._id, 
+      username 
+    });
   } catch (err) {
     console.error("❌ Fehler bei der Registrierung:", err);
     res.status(500).json({ error: "Serverfehler bei der Registrierung" });
