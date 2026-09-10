@@ -5,6 +5,7 @@ import http from "http";
 import { Server } from "socket.io";
 import path from "path";
 import { fileURLToPath } from "url";
+import ExifReader from "exifreader"; // 📱 EXIF-Bibliothek für Handydaten
 
 // 📂 Modelle importieren
 import Ticket from "./models/ticket.js"; 
@@ -158,7 +159,6 @@ app.get("/api/blacklist", async (req, res) => {
 
 app.post("/api/blacklist", async (req, res) => {
     try {
-        // HIER GEÄNDERT: Wir fangen jetzt 'image' statt 'imageUrl' ab (und erlauben beides)
         const { number, reason, fan, image, imageUrl } = req.body;
         
         if (!number) {
@@ -166,13 +166,32 @@ app.post("/api/blacklist", async (req, res) => {
         }
 
         const finalImage = image || imageUrl;
+        let exifInfo = {};
+
+        // 📱 EXIF-Metadaten (Handy-Modell etc.) aus dem Bild auslesen, falls vorhanden
+        if (finalImage) {
+            try {
+                const base64Data = finalImage.replace(/^data:image\/\w+;base64,/, "");
+                const buffer = Buffer.from(base64Data, 'base64');
+                const tags = ExifReader.load(buffer);
+                
+                exifInfo = {
+                    make: tags['Make']?.description || "",
+                    model: tags['Model']?.description || "",
+                    software: tags['Software']?.description || ""
+                };
+                console.log("📱 EXIF-Daten aus Bild extrahiert:", exifInfo);
+            } catch (exifErr) {
+                console.log("ℹ️ Keine EXIF-Daten im Bild gefunden oder lesbar.");
+            }
+        }
 
         const newEntry = new Blacklist({
             number,
             reason: reason || "Kein Grund angegeben",
             fan: fan || "Unbekannt",
-            // HIER GEÄNDERT: Das Bild wird nun korrekt in das Array geschrieben
-            screenshots: finalImage ? [finalImage] : []
+            screenshots: finalImage ? [finalImage] : [],
+            metadata: exifInfo // Speichert die Handydaten in der Datenbank
         });
 
         const savedEntry = await newEntry.save();
@@ -315,7 +334,7 @@ app.post("/tickets", async (req, res) => {
     const savedTicket = await newTicket.save();
 
     console.log(`🎫 Neues Ticket erstellt: ${savedTicket.ticketId}`);
-    io.emit("newTicket", savedTicket);
+    io.emit("newTicket", savedTest || savedTicket);
     res.status(201).json(savedTicket);
   } catch (err) {
     console.error("❌ Fehler beim Erstellen des Tickets:", err);
