@@ -196,26 +196,25 @@ app.get("/tickets", async (req, res) => {
   }
 });
 
-// 🔍 Einzelnes Ticket per ID oder ticketId abrufen (Robust gegen Leerzeichen & Groß/Klein)
+// 🔍 Einzelnes Ticket per ID oder ticketId abrufen (Absolut robust gemacht)
 app.get("/tickets/:id", async (req, res) => {
   try {
     let { id } = req.params;
-    id = id.trim(); // Bereinigt versehentliche Leerzeichen
+    id = id ? id.trim() : "";
 
-    const query = {
-      $or: [
-        { ticketId: { $regex: new RegExp(`^${id}$`, "i") } } // Case-insensitive Suche
-      ]
-    };
+    const queryConditions = [
+      { ticketId: id },
+      { ticketId: { $regex: new RegExp(`^${id}$`, "i") } }
+    ];
 
     if (mongoose.isValidObjectId(id)) {
-      query.$or.push({ _id: id });
+      queryConditions.push({ _id: id });
     }
 
-    const ticket = await Ticket.findOne(query);
+    const ticket = await Ticket.findOne({ $or: queryConditions });
 
     if (!ticket) {
-      console.log(`⚠️ Ticket nicht gefunden für Suche: "${id}"`);
+      console.log(`⚠️ Ticket nicht gefunden für Abfrage: "${id}"`);
       return res.status(404).json({ error: "Ticket nicht gefunden" });
     }
 
@@ -229,16 +228,19 @@ app.get("/tickets/:id", async (req, res) => {
 app.post("/tickets/:id/:action", async (req, res) => {
   try {
     let { id, action } = req.params;
-    id = id.trim();
+    id = id ? id.trim() : "";
     const newStatus = action === "close" ? "closed" : "open";
     
+    const queryConditions = [
+      { ticketId: id },
+      { ticketId: { $regex: new RegExp(`^${id}$`, "i") } }
+    ];
+    if (mongoose.isValidObjectId(id)) {
+      queryConditions.push({ _id: id });
+    }
+
     const updatedTicket = await Ticket.findOneAndUpdate(
-      { 
-        $or: [
-          { ticketId: { $regex: new RegExp(`^${id}$`, "i") } }, 
-          { _id: mongoose.isValidObjectId(id) ? id : null }
-        ] 
-      },
+      { $or: queryConditions },
       { status: newStatus },
       { new: true }
     );
@@ -272,14 +274,17 @@ app.post("/tickets/:id/:action", async (req, res) => {
 app.delete("/tickets/:id", async (req, res) => {
   try {
     let { id } = req.params;
-    id = id.trim();
-    
-    await Ticket.findOneAndDelete({ 
-      $or: [
-        { ticketId: { $regex: new RegExp(`^${id}$`, "i") } }, 
-        { _id: mongoose.isValidObjectId(id) ? id : null }
-      ] 
-    });
+    id = id ? id.trim() : "";
+
+    const queryConditions = [
+      { ticketId: id },
+      { ticketId: { $regex: new RegExp(`^${id}$`, "i") } }
+    ];
+    if (mongoose.isValidObjectId(id)) {
+      queryConditions.push({ _id: id });
+    }
+
+    await Ticket.findOneAndDelete({ $or: queryConditions });
     
     io.emit("ticketDeleted", id);
     res.json({ success: true });
