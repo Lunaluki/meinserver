@@ -20,9 +20,9 @@ const io = new Server(server, {
 });
 
 // =========================================================
-// 🌐 ZENTRALE KONFIGURATION
+// 🌐 ZENTRALE KONFIGURATION (Direkt im Code hinterlegt)
 // =========================================================
-const MAILWATCHER = process.env.MAILWATCHER_URL || "";
+const MAILWATCHER = process.env.MAILWATCHER_URL || "https://essays-radar-residence-attempted.trycloudflared.com";
 
 // CORS komplett öffnen
 app.use(cors({
@@ -57,7 +57,6 @@ const userSchema = new mongoose.Schema({
 
 const User = mongoose.models.User || mongoose.model("User", userSchema);
 
-// 🔍 NEU: Prüfen, ob eine User-ID in der Datenbank noch existiert (für den Geräteschutz)
 app.get("/api/auth/check/:id", async (req, res) => {
   try {
     const { id } = req.params;
@@ -100,7 +99,6 @@ app.post("/api/auth/register", async (req, res) => {
       return res.status(400).json({ error: "Benutzername und Passwort sind erforderlich!" });
     }
 
-    // Prüfen ob User schon existiert
     const existingUser = await User.findOne({ username });
     if (existingUser) {
       return res.status(400).json({ error: "Benutzername ist bereits vergeben!" });
@@ -178,7 +176,7 @@ app.post("/api/blacklist", async (req, res) => {
     
     io.emit("newBlacklistEntry", savedEntry);
     res.status(201).json({ success: true, savedEntry });
-  } catch (err) {
+  } solchen (err) {
     console.error("❌ Fehler beim Speichern in der Blacklist:", err);
     res.status(500).json({ error: "Fehler beim Speichern in der Datenbank" });
   }
@@ -215,11 +213,13 @@ app.post("/tickets/:id/:action", async (req, res) => {
 
     if (newStatus === "closed" && MAILWATCHER && updatedTicket.from) {
       try {
+        console.log(`🚀 Sende Ticket-Schließung an MailWatcher (${MAILWATCHER})...`);
         await fetch(`${MAILWATCHER}/ticket-closed`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ ticketId: updatedTicket.ticketId, email: updatedTicket.from })
         });
+        console.log("✅ MailWatcher erfolgreich benachrichtigt!");
       } catch (mailErr) {
         console.error("⚠️ Konnte Mailwatcher nicht erreichen:", mailErr.message);
       }
