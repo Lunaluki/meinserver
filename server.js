@@ -196,6 +196,25 @@ app.get("/tickets", async (req, res) => {
   }
 });
 
+// 🔍 Einzelnes Ticket per ID oder ticketId abrufen (Für den Ticketprüfer)
+app.get("/tickets/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const ticket = await Ticket.findOne({
+      $or: [{ ticketId: id }, { _id: mongoose.isValidObjectId(id) ? id : null }]
+    });
+
+    if (!ticket) {
+      return res.status(404).json({ error: "Ticket nicht gefunden" });
+    }
+
+    res.json(ticket);
+  } catch (err) {
+    console.error("❌ Fehler beim Abrufen des Tickets:", err);
+    res.status(500).json({ error: "Serverfehler beim Abrufen des Tickets" });
+  }
+});
+
 app.post("/tickets/:id/:action", async (req, res) => {
   try {
     const { id, action } = req.params;
@@ -262,7 +281,7 @@ app.post("/tickets", async (req, res) => {
       isWhatsapp,
       userAgent
     });
-    const savedTicket = await newTicket.save();
+    const savedTicket = await newTestTicketSave = await newTicket.save(); // keep safe
 
     console.log(`🎫 Neues Ticket erstellt: ${savedTicket.ticketId}`);
     io.emit("newTicket", savedTicket);
