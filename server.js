@@ -176,7 +176,7 @@ app.post("/api/blacklist", async (req, res) => {
     
     io.emit("newBlacklistEntry", savedEntry);
     res.status(201).json({ success: true, savedEntry });
-  } solchen (err) {
+  } catch (err) {
     console.error("❌ Fehler beim Speichern in der Blacklist:", err);
     res.status(500).json({ error: "Fehler beim Speichern in der Datenbank" });
   }
