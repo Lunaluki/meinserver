@@ -196,15 +196,26 @@ app.get("/tickets", async (req, res) => {
   }
 });
 
-// 🔍 Einzelnes Ticket per ID oder ticketId abrufen (Für den Ticketprüfer)
+// 🔍 Einzelnes Ticket per ID oder ticketId abrufen (Robust gegen Leerzeichen & Groß/Klein)
 app.get("/tickets/:id", async (req, res) => {
   try {
-    const { id } = req.params;
-    const ticket = await Ticket.findOne({
-      $or: [{ ticketId: id }, { _id: mongoose.isValidObjectId(id) ? id : null }]
-    });
+    let { id } = req.params;
+    id = id.trim(); // Bereinigt versehentliche Leerzeichen
+
+    const query = {
+      $or: [
+        { ticketId: { $regex: new RegExp(`^${id}$`, "i") } } // Case-insensitive Suche
+      ]
+    };
+
+    if (mongoose.isValidObjectId(id)) {
+      query.$or.push({ _id: id });
+    }
+
+    const ticket = await Ticket.findOne(query);
 
     if (!ticket) {
+      console.log(`⚠️ Ticket nicht gefunden für Suche: "${id}"`);
       return res.status(404).json({ error: "Ticket nicht gefunden" });
     }
 
@@ -217,11 +228,17 @@ app.get("/tickets/:id", async (req, res) => {
 
 app.post("/tickets/:id/:action", async (req, res) => {
   try {
-    const { id, action } = req.params;
+    let { id, action } = req.params;
+    id = id.trim();
     const newStatus = action === "close" ? "closed" : "open";
     
     const updatedTicket = await Ticket.findOneAndUpdate(
-      { $or: [{ ticketId: id }, { _id: mongoose.isValidObjectId(id) ? id : null }] },
+      { 
+        $or: [
+          { ticketId: { $regex: new RegExp(`^${id}$`, "i") } }, 
+          { _id: mongoose.isValidObjectId(id) ? id : null }
+        ] 
+      },
       { status: newStatus },
       { new: true }
     );
@@ -254,9 +271,14 @@ app.post("/tickets/:id/:action", async (req, res) => {
 
 app.delete("/tickets/:id", async (req, res) => {
   try {
-    const { id } = req.params;
+    let { id } = req.params;
+    id = id.trim();
+    
     await Ticket.findOneAndDelete({ 
-      $or: [{ ticketId: id }, { _id: mongoose.isValidObjectId(id) ? id : null }] 
+      $or: [
+        { ticketId: { $regex: new RegExp(`^${id}$`, "i") } }, 
+        { _id: mongoose.isValidObjectId(id) ? id : null }
+      ] 
     });
     
     io.emit("ticketDeleted", id);
