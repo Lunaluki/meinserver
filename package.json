@@ -9,6 +9,7 @@
   "dependencies": {
     "cors": "^2.8.6",
     "dotenv": "^16.6.1",
+    "exifreader": "^4.24.0",
     "express": "^4.22.2",
     "imapflow": "^1.6.5",
     "mailparser": "^3.9.14",
