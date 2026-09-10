@@ -157,29 +157,33 @@ app.get("/api/blacklist", async (req, res) => {
 });
 
 app.post("/api/blacklist", async (req, res) => {
-  try {
-    const { number, reason, fan, imageUrl } = req.body;
-    
-    if (!number) {
-      return res.status(400).json({ error: "Telefonnummer fehlt!" });
+    try {
+        // HIER GEÄNDERT: Wir fangen jetzt 'image' statt 'imageUrl' ab (und erlauben beides)
+        const { number, reason, fan, image, imageUrl } = req.body;
+        
+        if (!number) {
+            return res.status(400).json({ error: "Telefonnummer fehlt!" });
+        }
+
+        const finalImage = image || imageUrl;
+
+        const newEntry = new Blacklist({
+            number,
+            reason: reason || "Kein Grund angegeben",
+            fan: fan || "Unbekannt",
+            // HIER GEÄNDERT: Das Bild wird nun korrekt in das Array geschrieben
+            screenshots: finalImage ? [finalImage] : []
+        });
+
+        const savedEntry = await newEntry.save();
+        console.log(`🚨 Neue Nummer zur Blacklist hinzugefügt: ${number}`);
+        
+        io.emit("newBlacklistEntry", savedEntry);
+        res.status(201).json({ success: true, savedEntry });
+    } catch (err) {
+        console.error("❌ Fehler beim Speichern in der Blacklist:", err);
+        res.status(500).json({ error: "Fehler beim Speichern in der Datenbank" });
     }
-
-    const newEntry = new Blacklist({
-      number,
-      reason: reason || "Kein Grund angegeben",
-      fan: fan || "Unbekannt",
-      screenshots: imageUrl ? [imageUrl] : []
-    });
-
-    const savedEntry = await newEntry.save();
-    console.log(`🚨 Neue Nummer zur Blacklist hinzugefügt: ${number}`);
-    
-    io.emit("newBlacklistEntry", savedEntry);
-    res.status(201).json({ success: true, savedEntry });
-  } catch (err) {
-    console.error("❌ Fehler beim Speichern in der Blacklist:", err);
-    res.status(500).json({ error: "Fehler beim Speichern in der Datenbank" });
-  }
 });
 
 // =========================================================
