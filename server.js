@@ -84,6 +84,46 @@ io.on("connection", (socket) => {
 // 🌐 ROUTES
 // ---------------------------------------------------------
 
+// 🟢 Status / Root Endpoint (Verhindert 404 bei Cron-Jobs / Render-Pings)
+app.get("/", (req, res) => {
+  res.status(200).send(`
+    <!DOCTYPE html>
+    <html lang="de">
+    <head>
+        <meta charset="UTF-8">
+        <title>Luna Bot Server</title>
+        <style>
+            body {
+                background: #110515;
+                color: #fff;
+                font-family: Arial, sans-serif;
+                text-align: center;
+                padding-top: 10vh;
+            }
+            .box {
+                background: #1e0924;
+                border: 2px solid #ff4fae;
+                display: inline-block;
+                padding: 40px;
+                border-radius: 12px;
+                box-shadow: 0 0 20px rgba(255, 79, 174, 0.4);
+            }
+            h1 { color: #ff9dd6; margin-top: 0; }
+            .status { color: #00ffaa; font-weight: bold; }
+        </style>
+    </head>
+    <body>
+        <div class="box">
+            <h1>Luna Bot Backend</h1>
+            <p>Status: <span class="status">ONLINE & Läuft perfekt! 🚀</span></p>
+            <p>Hier läuft das Backend für Support-Tickets & Blacklist-System.</p>
+            <p><a href="/admin" style="color: #ff4fae; text-decoration: none; font-weight: bold;">→ Zum Admin Dashboard</a></p>
+        </div>
+    </body>
+    </html>
+  `);
+});
+
 // Admin Dashboard Seite ausliefern
 app.get("/admin", (req, res) => {
   res.sendFile(path.join(__dirname, "admin.html"));
@@ -334,7 +374,7 @@ app.post("/tickets", async (req, res) => {
     const savedTicket = await newTicket.save();
 
     console.log(`🎫 Neues Ticket erstellt: ${savedTicket.ticketId}`);
-    io.emit("newTicket", savedTest || savedTicket);
+    io.emit("newTicket", savedTicket);
     res.status(201).json(savedTicket);
   } catch (err) {
     console.error("❌ Fehler beim Erstellen des Tickets:", err);
