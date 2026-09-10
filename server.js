@@ -215,40 +215,28 @@ app.get("/tickets/:id", async (req, res) => {
   }
 });
 
-app.post("/tickets/:id/:action", async (req, res) => {
+app.post("/tickets", async (req, res) => {
   try {
-    const { id, action } = req.params;
-    const newStatus = action === "close" ? "closed" : "open";
-    
-    const updatedTicket = await Ticket.findOneAndUpdate(
-      { $or: [{ ticketId: id }, { _id: mongoose.isValidObjectId(id) ? id : null }] },
-      { status: newStatus },
-      { new: true }
-    );
+    const { ticketId, from, subject, message, text, os, source, isWhatsapp, userAgent } = req.body;
+    const newTicket = new Ticket({
+      ticketId: ticketId || `LUNA-${Date.now()}`,
+      from,
+      subject: subject || "Luna Support Anfrage",
+      message: message || text,
+      text: text || message,
+      os,
+      source,
+      isWhatsapp,
+      userAgent
+    });
+    const savedTicket = await newTicket.save();
 
-    if (!updatedTicket) {
-      return res.status(404).json({ error: "Ticket nicht gefunden" });
-    }
-
-    if (newStatus === "closed" && MAILWATCHER && updatedTicket.from) {
-      try {
-        console.log(`🚀 Sende Ticket-Schließung an MailWatcher (${MAILWATCHER})...`);
-        await fetch(`${MAILWATCHER}/ticket-closed`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ticketId: updatedTicket.ticketId, email: updatedTicket.from })
-        });
-        console.log("✅ MailWatcher erfolgreich benachrichtigt!");
-      } catch (mailErr) {
-        console.error("⚠️ Konnte Mailwatcher nicht erreichen:", mailErr.message);
-      }
-    }
-
-    io.emit("ticketUpdated", updatedTicket);
-    res.json({ success: true, updatedTicket });
+    console.log(`🎫 Neues Ticket erstellt: ${savedTicket.ticketId}`);
+    io.emit("newTicket", savedTicket);
+    res.status(201).json(savedTicket);
   } catch (err) {
-    console.error("❌ Fehler beim Aktualisieren:", err);
-    res.status(500).json({ error: "Fehler beim Aktualisieren" });
+    console.error("❌ Fehler beim Erstellen des Tickets:", err);
+    res.status(500).json({ error: "Fehler beim Erstellen des Tickets" });
   }
 });
 
