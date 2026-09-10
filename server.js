@@ -22,7 +22,7 @@ const io = new Server(server, {
 // =========================================================
 // 🌐 ZENTRALE KONFIGURATION (Direkt im Code hinterlegt)
 // =========================================================
-const MAILWATCHER = process.env.MAILWATCHER_URL || "https://transmit-shore-feedback-mean.trycloudflared.com";
+const MAILWATCHER = process.env.MAILWATCHER_URL || "https://transmit-shore-feedback-mean.trycloudflare.com";
 
 // CORS komplett öffnen
 app.use(cors({
