@@ -5,6 +5,7 @@ import http from "http";
 import { Server } from "socket.io";
 import path from "path";
 import { fileURLToPath } from "url";
+import crypto from "crypto"; // 🔐 Für sichere Reset-Tokens
 import ExifReader from "exifreader"; // 📱 EXIF-Bibliothek für Handydaten
 
 // 📂 Modelle importieren
@@ -53,6 +54,8 @@ mongoose.connect(MONGO_URI)
 const userSchema = new mongoose.Schema({
   username: { type: String, required: true, unique: true, trim: true },
   password: { type: String, required: true },
+  resetPasswordToken: { type: String }, // 🔑 Token für Passwort-Zurücksetzung
+  resetPasswordExpires: { type: Date }, // ⏰ Ablaufzeit des Tokens
   createdAt: { type: Date, default: Date.now }
 });
 
@@ -130,7 +133,7 @@ app.get("/admin", (req, res) => {
 });
 
 // =========================================================
-// 🔐 AUTH ROUTES (REGISTER & LOGIN)
+// 🔐 AUTH ROUTES (REGISTER, LOGIN & PASSWORD RESET)
 // =========================================================
 app.post("/api/auth/register", async (req, res) => {
   try {
@@ -180,6 +183,74 @@ app.post("/api/auth/login", async (req, res) => {
   } catch (err) {
     console.error("❌ Fehler beim Login:", err);
     res.status(500).json({ error: "Serverfehler beim Login" });
+  }
+});
+
+// 1️⃣ Passwort vergessen: Generiert den Token und loggt den Link in der Konsole
+app.post("/api/auth/forgot-password", async (req, res) => {
+  try {
+    const { username } = req.body;
+    if (!username) {
+      return res.status(400).json({ error: "Bitte gib deinen Benutzernamen ein!" });
+    }
+
+    const user = await User.findOne({ username: username.trim() });
+    
+    // Aus Sicherheitsgründen geben wir immer success: true zurück, damit niemand Usernamen erraten kann
+    if (!user) {
+      return res.json({ success: true, message: "Falls der Account existiert, wurde ein Link generiert." });
+    }
+
+    // Sicherer Einmal-Token (64 Zeichen Hex)
+    const token = crypto.randomBytes(32).toString("hex");
+    
+    // 1 Stunde Gültigkeit (3600000 ms)
+    user.resetPasswordToken = token;
+    user.resetPasswordExpires = Date.now() + 3600000;
+    await user.save();
+
+    // Dynamischer Reset-Link
+    const resetLink = `https://meinserver-u317.onrender.com/reset-password.html?token=${token}`;
+    
+    console.log(`🔗 PASSWORD RESET LINK für '${user.username}': ${resetLink}`);
+
+    res.json({ success: true, message: "Reset-Link wurde in der Konsole generiert!" });
+  } catch (err) {
+    console.error("❌ Fehler bei Passwort vergessen:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
+// 2️⃣ Neues Passwort speichern über den Token
+app.post("/api/auth/reset-password", async (req, res) => {
+  try {
+    const { token, password } = req.body;
+
+    if (!token || !password) {
+      return res.status(400).json({ error: "Token und neues Passwort sind erforderlich!" });
+    }
+
+    // Suche User mit gültigem Token und nicht abgelaufener Zeit
+    const user = await User.findOne({
+      resetPasswordToken: token,
+      resetPasswordExpires: { $gt: Date.now() }
+    });
+
+    if (!user) {
+      return res.status(400).json({ error: "Der Link ist ungültig oder bereits abgelaufen!" });
+    }
+
+    // Passwort aktualisieren und Token sofort löschen (Einmal-Nutzung)
+    user.password = password;
+    user.resetPasswordToken = undefined;
+    user.resetPasswordExpires = undefined;
+    await user.save();
+
+    console.log(`🔒 Passwort erfolgreich geändert für User: ${user.username}`);
+    res.json({ success: true, message: "Passwort erfolgreich geändert!" });
+  } catch (err) {
+    console.error("❌ Fehler beim Zurücksetzen des Passworts:", err);
+    res.status(500).json({ error: "Serverfehler" });
   }
 });
 
