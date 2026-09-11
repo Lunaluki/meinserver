@@ -53,6 +53,7 @@ mongoose.connect(MONGO_URI)
 // =========================================================
 const userSchema = new mongoose.Schema({
   username: { type: String, required: true, unique: true, trim: true },
+  email: { type: String, required: true, unique: true, trim: true, lowercase: true }, // 📧 E-Mail-Feld hinzugefügt
   password: { type: String, required: true },
   resetPasswordToken: { type: String }, // 🔑 Token für Passwort-Zurücksetzung
   resetPasswordExpires: { type: Date }, // ⏰ Ablaufzeit des Tokens
@@ -137,21 +138,21 @@ app.get("/admin", (req, res) => {
 // =========================================================
 app.post("/api/auth/register", async (req, res) => {
   try {
-    const { username, password } = req.body;
+    const { username, email, password } = req.body;
 
-    if (!username || !password) {
-      return res.status(400).json({ error: "Benutzername und Passwort sind erforderlich!" });
+    if (!username || !email || !password) {
+      return res.status(400).json({ error: "Benutzername, E-Mail und Passwort sind erforderlich!" });
     }
 
-    const existingUser = await User.findOne({ username });
+    const existingUser = await User.findOne({ $or: [{ username }, { email }] });
     if (existingUser) {
-      return res.status(400).json({ error: "Benutzername ist bereits vergeben!" });
+      return res.status(400).json({ error: "Benutzername oder E-Mail ist bereits vergeben!" });
     }
 
-    const newUser = new User({ username, password });
+    const newUser = new User({ username, email, password });
     await newUser.save();
 
-    console.log(`👤 Neuer User registriert: ${username} (ID: ${newUser._id})`);
+    console.log(`👤 Neuer User registriert: ${username} (${email}) (ID: ${newUser._id})`);
     
     res.status(201).json({ 
       success: true, 
@@ -167,19 +168,27 @@ app.post("/api/auth/register", async (req, res) => {
 
 app.post("/api/auth/login", async (req, res) => {
   try {
-    const { username, password } = req.body;
+    const { username, password } = req.body; // 'username' Feld enthält entweder den Namen oder die E-Mail
 
     if (!username || !password) {
-      return res.status(400).json({ error: "Benutzername und Passwort erforderlich!" });
+      return res.status(400).json({ error: "Benutzername/E-Mail und Passwort erforderlich!" });
     }
 
-    const user = await User.findOne({ username, password });
+    // Suche wahlweise nach Benutzername oder E-Mail
+    const user = await User.findOne({
+      $or: [
+        { username: username.trim() },
+        { email: username.trim().toLowerCase() }
+      ],
+      password
+    });
+
     if (!user) {
-      return res.status(401).json({ error: "Ungültiger Benutzername oder falsches Passwort!" });
+      return res.status(401).json({ error: "Ungültige Anmeldedaten oder falsches Passwort!" });
     }
 
-    console.log(`🔑 User eingeloggt: ${username} (ID: ${user._id})`);
-    res.json({ success: true, userId: user._id, token: "token_" + user._id, username });
+    console.log(`🔑 User eingeloggt: ${user.username} (ID: ${user._id})`);
+    res.json({ success: true, userId: user._id, token: "token_" + user._id, username: user.username });
   } catch (err) {
     console.error("❌ Fehler beim Login:", err);
     res.status(500).json({ error: "Serverfehler beim Login" });
@@ -189,16 +198,22 @@ app.post("/api/auth/login", async (req, res) => {
 // 1️⃣ Passwort vergessen: Generiert den Token und loggt den Link in der Konsole
 app.post("/api/auth/forgot-password", async (req, res) => {
   try {
-    const { username } = req.body;
-    if (!username) {
-      return res.status(400).json({ error: "Bitte gib deinen Benutzernamen ein!" });
+    const { email } = req.body; // Akzeptiert jetzt Username oder E-Mail
+    if (!email) {
+      return res.status(400).json({ error: "Bitte gib deinen Benutzernamen oder deine E-Mail ein!" });
     }
 
-    const user = await User.findOne({ username: username.trim() });
+    const searchValue = email.trim();
+    const user = await User.findOne({
+      $or: [
+        { username: searchValue },
+        { email: searchValue.toLowerCase() }
+      ]
+    });
     
-    // Aus Sicherheitsgründen geben wir immer success: true zurück, damit niemand Usernamen erraten kann
+    // Aus Sicherheitsgründen geben wir immer success: true zurück, damit niemand Usernamen/Mails erraten kann
     if (!user) {
-      return res.json({ success: true, message: "Falls der Account existiert, wurde ein Link generiert." });
+      return res.json({ success: true, message: "Falls das Konto existiert, wurde ein Link generiert." });
     }
 
     // Sicherer Einmal-Token (64 Zeichen Hex)
