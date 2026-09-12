@@ -25,7 +25,7 @@ const io = new Server(server, {
 // 🌐 ZENTRALE KONFIGURATION
 // =========================================================
 const MAILWATCHER = process.env.MAILWATCHER_URL || "https://transmit-shore-feedback-mean.trycloudflare.com";
-const BASE_URL = process.env.BASE_URL || "https://meinserver-u317.onrender.com";
+const BASE_URL = process.env.BASE_URL || "https://dsvgo.onrender.com";
 
 // CORS komplett öffnen
 app.use(cors({
@@ -133,31 +133,54 @@ app.get("/admin", (req, res) => {
 });
 
 // =========================================================
-// 🔐 PASSWORT-RESET-SEITE (Verhindert 404 durch Übersetzer-Tools)
+// 🔐 PASSWORT-RESET-SEITE (Nur über Token im Pfad erreichbar)
 // =========================================================
 
-// GET: normale Passwort-Reset-Seite
+// 1. Wenn jemand OHNE Token aufruft -> Zugriff verweigern!
 app.get("/passwortvergessen.html", (req, res) => {
-  res.sendFile(path.join(__dirname, "passwortvergessen.html"));
+  return res.status(403).send(`
+    <!DOCTYPE html>
+    <html lang="de">
+    <head><meta charset="UTF-8"><title>Zugriff verweigert</title></head>
+    <body style="background:#110515; color:#fff; font-family:Arial; text-align:center; padding-top:15vh;">
+      <h1 style="color:#ff4fae;">Zugriff verweigert! 🛑</h1>
+      <p>Diese Seite kann nur über den gültigen Reset-Link aus deiner E-Mail aufgerufen werden.</p>
+      <p><a href="/" style="color:#00ffaa;">Zur Startseite</a></p>
+    </body>
+    </html>
+  `);
 });
 
-// POST: Fängt fehlerhafte POST-Aufrufe von Browser-Erweiterungen / Google Translate ab
-app.post("/passwortvergessen.html", (req, res) => {
-  const token = req.query.token || "";
+// 2. Wenn jemand mit Token im Pfad aufruft: /passwortvergessen.html/DEIN_TOKEN
+app.get("/passwortvergessen.html/:token", async (req, res) => {
+  const token = req.params.token;
 
-  if (token) {
-    return res.redirect(
-      303,
-      `/passwortvergessen.html?token=${encodeURIComponent(token)}`
-    );
+  try {
+    const user = await User.findOne({
+      resetPasswordToken: token.trim(),
+      resetPasswordExpires: { $gt: new Date() }
+    });
+
+    if (!user) {
+      return res.status(400).send(`
+        <!DOCTYPE html>
+        <html lang="de">
+        <head><meta charset="UTF-8"><title>Link ungültig</title></head>
+        <body style="background:#110515; color:#fff; font-family:Arial; text-align:center; padding-top:15vh;">
+          <h1 style="color:#ff4fae;">Link ungültig oder bereits abgelaufen! ⏳</h1>
+          <p>Dieser Link wurde entweder schon benutzt oder ist älter als 1 Stunde.</p>
+        </body>
+        </html>
+      `);
+    }
+
+    // Wenn Token gültig ist -> HTML-Seite ausliefern
+    res.sendFile(path.join(__dirname, "passwortvergessen.html"));
+
+  } catch (err) {
+    console.error("❌ Fehler beim Prüfen des Tokens:", err);
+    res.status(500).send("Serverfehler");
   }
-
-  return res.redirect(303, "/passwortvergessen.html");
-});
-
-// HEAD sauber beantworten
-app.head("/passwortvergessen.html", (req, res) => {
-  res.sendStatus(200);
 });
 
 // =========================================================
@@ -248,8 +271,8 @@ app.post("/api/auth/forgot-password", async (req, res) => {
     user.resetPasswordExpires = Date.now() + 3600000; // 1 Stunde
     await user.save();
 
-    // 🌐 Zuverlässiger Link über die BASE_URL
-    const resetLink = `${BASE_URL}/passwortvergessen.html?token=${encodeURIComponent(token)}`;
+    // 🌐 Link mit Token im Pfad (/passwortvergessen.html/TOKEN)
+    const resetLink = `${BASE_URL}/passwortvergessen.html/${encodeURIComponent(token)}`;
     
     console.log(`🔗 PASSWORD RESET LINK für '${user.username}': ${resetLink}`);
 
@@ -306,7 +329,7 @@ app.post("/api/auth/reset-password", async (req, res) => {
     }
 
     user.password = password;
-    user.resetPasswordToken = undefined;
+    user.resetPasswordToken = undefined; // Token sofort verbrennen
     user.resetPasswordExpires = undefined;
     await user.save();
 
@@ -500,7 +523,6 @@ app.post("/tickets", async (req, res) => {
       isWhatsapp,
       userAgent
     });
-    const savedTicket = name => newTicket.save(); // wait, keep original newTicket.save() below:
     const saved = await newTicket.save();
 
     io.emit("newTicket", saved);
