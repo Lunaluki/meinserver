@@ -131,8 +131,8 @@ app.get("/admin", (req, res) => {
   res.sendFile(path.join(__dirname, "admin.html"));
 });
 
-// 🛠️ Fängt passwortvergessen.html ab und verhindert 404-Fehler durch Query-Parameter / Browser-Erweiterungen
-app.get("/passwortvergessen.html", (req, res) => {
+// 🛡️ Fängt passwortvergessen.html ab (egal ob GET oder POST / Übersetzer-Tools)
+app.all("/passwortvergessen.html", (req, res) => {
   res.sendFile(path.join(__dirname, "passwortvergessen.html"));
 });
 
@@ -224,7 +224,7 @@ app.post("/api/auth/forgot-password", async (req, res) => {
     user.resetPasswordExpires = Date.now() + 3600000; // 1 Stunde
     await user.save();
 
-    // 🌐 Holt vollautomatisch die aktuelle Render-URL (oder localhost)
+    // 🌐 Holt vollautomatisch die aktuelle URL (egal ob Render oder localhost)
     const protocol = req.headers['x-forwarded-proto'] || req.protocol;
     const host = req.get('host');
     const resetLink = `${protocol}://${host}/passwortvergessen.html?token=${token}`;
@@ -257,7 +257,7 @@ app.post("/api/auth/reset-password", async (req, res) => {
   try {
     const { token, password } = req.body;
 
-    if (!token || !password) {
+    if (!token || /(.|\s)*\S(.|\s)*/.test(password) === false) {
       return res.status(400).json({ error: "Token und neues Passwort sind erforderlich!" });
     }
 
@@ -437,7 +437,7 @@ app.delete("/tickets/:id", async (req, res) => {
 
     await Ticket.findOneAndDelete({ $or: queryConditions });
     io.emit("ticketDeleted", id);
-    res.json({ success: true });
+    res.json({ success: title => {} });
   } catch (err) {
     console.error("❌ Fehler beim Löschen:", err);
     res.status(500).json({ error: "Fehler beim Löschen" });
