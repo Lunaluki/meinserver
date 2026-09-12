@@ -131,6 +131,11 @@ app.get("/admin", (req, res) => {
   res.sendFile(path.join(__dirname, "admin.html"));
 });
 
+// 🛠️ Fängt passwortvergessen.html ab und verhindert 404-Fehler durch Query-Parameter / Browser-Erweiterungen
+app.get("/passwortvergessen.html", (req, res) => {
+  res.sendFile(path.join(__dirname, "passwortvergessen.html"));
+});
+
 // =========================================================
 // 🔐 AUTH ROUTES (REGISTER, LOGIN & PASSWORD RESET)
 // =========================================================
@@ -219,7 +224,7 @@ app.post("/api/auth/forgot-password", async (req, res) => {
     user.resetPasswordExpires = Date.now() + 3600000; // 1 Stunde
     await user.save();
 
-    // 🌐 Holt vollautomatisch die aktuelle URL (egal ob Render oder localhost)
+    // 🌐 Holt vollautomatisch die aktuelle Render-URL (oder localhost)
     const protocol = req.headers['x-forwarded-proto'] || req.protocol;
     const host = req.get('host');
     const resetLink = `${protocol}://${host}/passwortvergessen.html?token=${token}`;
