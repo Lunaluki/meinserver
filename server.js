@@ -219,7 +219,11 @@ app.post("/api/auth/forgot-password", async (req, res) => {
     user.resetPasswordExpires = Date.now() + 3600000; // 1 Stunde
     await user.save();
 
-    const resetLink = `https://meinserver-u317.onrender.com/reset-password.html?token=${token}`;
+    // 🌐 Holt vollautomatisch die aktuelle URL (egal ob Render oder localhost)
+    const protocol = req.headers['x-forwarded-proto'] || req.protocol;
+    const host = req.get('host');
+    const resetLink = `${protocol}://${host}/reset-password.html?token=${token}`;
+    
     console.log(`🔗 PASSWORD RESET LINK für '${user.username}': ${resetLink}`);
 
     // An den lokalen MailWatcher senden, damit er die E-Mail rausschickt
