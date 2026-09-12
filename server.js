@@ -222,7 +222,7 @@ app.post("/api/auth/forgot-password", async (req, res) => {
     // 🌐 Holt vollautomatisch die aktuelle URL (egal ob Render oder localhost)
     const protocol = req.headers['x-forwarded-proto'] || req.protocol;
     const host = req.get('host');
-    const resetLink = `${protocol}://${host}/reset-password.html?token=${token}`;
+    const resetLink = `${protocol}://${host}/passwortvergessen.html?token=${token}`;
     
     console.log(`🔗 PASSWORD RESET LINK für '${user.username}': ${resetLink}`);
 
