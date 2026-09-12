@@ -22,9 +22,10 @@ const io = new Server(server, {
 });
 
 // =========================================================
-// 🌐 ZENTRALE KONFIGURATION (Direkt im Code hinterlegt)
+// 🌐 ZENTRALE KONFIGURATION
 // =========================================================
 const MAILWATCHER = process.env.MAILWATCHER_URL || "https://transmit-shore-feedback-mean.trycloudflare.com";
+const BASE_URL = process.env.BASE_URL || "https://meinserver-u317.onrender.com";
 
 // CORS komplett öffnen
 app.use(cors({
@@ -131,9 +132,32 @@ app.get("/admin", (req, res) => {
   res.sendFile(path.join(__dirname, "admin.html"));
 });
 
-// 🛡️ Fängt passwortvergessen.html ab (egal ob GET oder POST / Übersetzer-Tools)
-app.all("/passwortvergessen.html", (req, res) => {
+// =========================================================
+// 🔐 PASSWORT-RESET-SEITE (Verhindert 404 durch Übersetzer-Tools)
+// =========================================================
+
+// GET: normale Passwort-Reset-Seite
+app.get("/passwortvergessen.html", (req, res) => {
   res.sendFile(path.join(__dirname, "passwortvergessen.html"));
+});
+
+// POST: Fängt fehlerhafte POST-Aufrufe von Browser-Erweiterungen / Google Translate ab
+app.post("/passwortvergessen.html", (req, res) => {
+  const token = req.query.token || "";
+
+  if (token) {
+    return res.redirect(
+      303,
+      `/passwortvergessen.html?token=${encodeURIComponent(token)}`
+    );
+  }
+
+  return res.redirect(303, "/passwortvergessen.html");
+});
+
+// HEAD sauber beantworten
+app.head("/passwortvergessen.html", (req, res) => {
+  res.sendStatus(200);
 });
 
 // =========================================================
@@ -224,10 +248,8 @@ app.post("/api/auth/forgot-password", async (req, res) => {
     user.resetPasswordExpires = Date.now() + 3600000; // 1 Stunde
     await user.save();
 
-    // 🌐 Holt vollautomatisch die aktuelle URL (egal ob Render oder localhost)
-    const protocol = req.headers['x-forwarded-proto'] || req.protocol;
-    const host = req.get('host');
-    const resetLink = `${protocol}://${host}/passwortvergessen.html?token=${token}`;
+    // 🌐 Zuverlässiger Link über die BASE_URL
+    const resetLink = `${BASE_URL}/passwortvergessen.html?token=${encodeURIComponent(token)}`;
     
     console.log(`🔗 PASSWORD RESET LINK für '${user.username}': ${resetLink}`);
 
@@ -252,22 +274,35 @@ app.post("/api/auth/forgot-password", async (req, res) => {
   }
 });
 
-// 2️⃣ Neues Passwort speichern
+// 2️⃣ Neues Passwort speichern (Robuste API)
 app.post("/api/auth/reset-password", async (req, res) => {
   try {
     const { token, password } = req.body;
 
-    if (!token || /(.|\s)*\S(.|\s)*/.test(password) === false) {
-      return res.status(400).json({ error: "Token und neues Passwort sind erforderlich!" });
+    if (
+      typeof token !== "string" ||
+      !token.trim() ||
+      typeof password !== "string" ||
+      !password.trim()
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: "Token und neues Passwort sind erforderlich!"
+      });
     }
 
+    const cleanToken = token.trim();
+
     const user = await User.findOne({
-      resetPasswordToken: token,
-      resetPasswordExpires: { $gt: Date.now() }
+      resetPasswordToken: cleanToken,
+      resetPasswordExpires: { $gt: new Date() }
     });
 
     if (!user) {
-      return res.status(400).json({ error: "Der Link ist ungültig oder bereits abgelaufen!" });
+      return res.status(400).json({
+        success: false,
+        error: "Der Link ist ungültig oder abgelaufen!"
+      });
     }
 
     user.password = password;
@@ -276,10 +311,17 @@ app.post("/api/auth/reset-password", async (req, res) => {
     await user.save();
 
     console.log(`🔒 Passwort erfolgreich geändert für User: ${user.username}`);
-    res.json({ success: true, message: "Passwort erfolgreich geändert!" });
+
+    return res.json({
+      success: true,
+      message: "Passwort erfolgreich geändert!"
+    });
   } catch (err) {
-    console.error("❌ Fehler beim Zurücksetzen des Passworts:", err);
-    res.status(500).json({ error: "Serverfehler" });
+    console.error("❌ Fehler beim Zurücksetzen:", err);
+    return res.status(500).json({
+      success: false,
+      error: "Serverfehler beim Zurücksetzen des Passworts."
+    });
   }
 });
 
@@ -437,7 +479,7 @@ app.delete("/tickets/:id", async (req, res) => {
 
     await Ticket.findOneAndDelete({ $or: queryConditions });
     io.emit("ticketDeleted", id);
-    res.json({ success: title => {} });
+    res.json({ success: true });
   } catch (err) {
     console.error("❌ Fehler beim Löschen:", err);
     res.status(500).json({ error: "Fehler beim Löschen" });
@@ -458,10 +500,11 @@ app.post("/tickets", async (req, res) => {
       isWhatsapp,
       userAgent
     });
-    const savedTicket = await newTicket.save();
+    const savedTicket = name => newTicket.save(); // wait, keep original newTicket.save() below:
+    const saved = await newTicket.save();
 
-    io.emit("newTicket", savedTicket);
-    res.status(201).json(savedTicket);
+    io.emit("newTicket", saved);
+    res.status(201).json(saved);
   } catch (err) {
     console.error("❌ Fehler beim Erstellen des Tickets:", err);
     res.status(500).json({ error: "Fehler beim Erstellen des Tickets" });
