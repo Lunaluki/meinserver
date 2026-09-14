@@ -5,8 +5,8 @@ import http from "http";
 import { Server } from "socket.io";
 import path from "path";
 import { fileURLToPath } from "url";
-import crypto from "crypto"; // 🔐 Für sichere Reset-Tokens
-import ExifReader from "exifreader"; // 📱 EXIF-Bibliothek für Handydaten
+import crypto from "crypto";
+import ExifReader from "exifreader";
 
 // 📂 Modelle importieren
 import Ticket from "./models/ticket.js"; 
@@ -39,7 +39,7 @@ app.options("*", cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
-// Statische Dateien ausliefern (damit HTML-Seiten direkt greifen)
+// Statische Dateien ausliefern
 app.use(express.static(__dirname));
 
 // 🔗 MongoDB Verbindung
@@ -97,21 +97,8 @@ app.get("/", (req, res) => {
         <meta charset="UTF-8">
         <title>Luna Bot Server</title>
         <style>
-            body {
-                background: #110515;
-                color: #fff;
-                font-family: Arial, sans-serif;
-                text-align: center;
-                padding-top: 10vh;
-            }
-            .box {
-                background: #1e0924;
-                border: 2px solid #ff4fae;
-                display: inline-block;
-                padding: 40px;
-                border-radius: 12px;
-                box-shadow: 0 0 20px rgba(255, 79, 174, 0.4);
-            }
+            body { background: #110515; color: #fff; font-family: Arial, sans-serif; text-align: center; padding-top: 10vh; }
+            .box { background: #1e0924; border: 2px solid #ff4fae; display: inline-block; padding: 40px; border-radius: 12px; box-shadow: 0 0 20px rgba(255, 79, 174, 0.4); }
             h1 { color: #ff9dd6; margin-top: 0; }
             .status { color: #00ffaa; font-weight: bold; }
         </style>
@@ -132,11 +119,7 @@ app.get("/admin", (req, res) => {
   res.sendFile(path.join(__dirname, "admin.html"));
 });
 
-// =========================================================
-// 🔐 PASSWORT-RESET-SEITE (Nur über Token im Pfad erreichbar)
-// =========================================================
-
-// 1. Wenn jemand OHNE Token aufruft -> Zugriff verweigern!
+// 🔐 PASSWORT-RESET-SEITEN
 app.get("/passwortvergessen.html", (req, res) => {
   return res.status(403).send(`
     <!DOCTYPE html>
@@ -151,10 +134,8 @@ app.get("/passwortvergessen.html", (req, res) => {
   `);
 });
 
-// 2. Wenn jemand mit Token im Pfad aufruft: /passwortvergessen.html/DEIN_TOKEN
 app.get("/passwortvergessen.html/:token", async (req, res) => {
   const token = req.params.token;
-
   try {
     const user = await User.findOne({
       resetPasswordToken: token.trim(),
@@ -174,22 +155,17 @@ app.get("/passwortvergessen.html/:token", async (req, res) => {
       `);
     }
 
-    // Wenn Token gültig ist -> HTML-Seite ausliefern
     res.sendFile(path.join(__dirname, "passwortvergessen.html"));
-
   } catch (err) {
     console.error("❌ Fehler beim Prüfen des Tokens:", err);
     res.status(500).send("Serverfehler");
   }
 });
 
-// =========================================================
-// 🔐 AUTH ROUTES (REGISTER, LOGIN & PASSWORD RESET)
-// =========================================================
+// 🔐 AUTH ROUTES
 app.post("/api/auth/register", async (req, res) => {
   try {
     const { username, email, password } = req.body;
-
     if (!username || !email || !password) {
       return res.status(400).json({ error: "Benutzername, E-Mail und Passwort sind erforderlich!" });
     }
@@ -202,8 +178,6 @@ app.post("/api/auth/register", async (req, res) => {
     const newUser = new User({ username, email, password });
     await newUser.save();
 
-    console.log(`👤 Neuer User registriert: ${username} (${email}) (ID: ${newUser._id})`);
-    
     res.status(201).json({ 
       success: true, 
       userId: newUser._id, 
@@ -219,7 +193,6 @@ app.post("/api/auth/register", async (req, res) => {
 app.post("/api/auth/login", async (req, res) => {
   try {
     const { username, password } = req.body;
-
     if (!username || !password) {
       return res.status(400).json({ error: "Benutzername/E-Mail und Passwort erforderlich!" });
     }
@@ -236,7 +209,6 @@ app.post("/api/auth/login", async (req, res) => {
       return res.status(401).json({ error: "Ungültige Anmeldedaten oder falsches Passwort!" });
     }
 
-    console.log(`🔑 User eingeloggt: ${user.username} (ID: ${user._id})`);
     res.json({ success: true, userId: user._id, token: "token_" + user._id, username: user.username });
   } catch (err) {
     console.error("❌ Fehler beim Login:", err);
@@ -244,7 +216,6 @@ app.post("/api/auth/login", async (req, res) => {
   }
 });
 
-// 1️⃣ Passwort vergessen: Generiert Token und sendet Anfrage an den MailWatcher
 app.post("/api/auth/forgot-password", async (req, res) => {
   try {
     const { email } = req.body;
@@ -259,24 +230,18 @@ app.post("/api/auth/forgot-password", async (req, res) => {
         { email: searchValue.toLowerCase() }
       ]
     });
-    
-    // Aus Sicherheitsgründen immer success zurückgeben
+
     if (!user) {
       return res.json({ success: true, message: "Falls das Konto existiert, wurde eine E-Mail gesendet." });
     }
 
-    // Sicherer Einmal-Token
     const token = crypto.randomBytes(32).toString("hex");
     user.resetPasswordToken = token;
-    user.resetPasswordExpires = Date.now() + 3600000; // 1 Stunde
+    user.resetPasswordExpires = Date.now() + 3600000;
     await user.save();
 
-    // 🌐 Link mit Token im Pfad (/passwortvergessen.html/TOKEN)
     const resetLink = `${BASE_URL}/passwortvergessen.html/${encodeURIComponent(token)}`;
-    
-    console.log(`🔗 PASSWORD RESET LINK für '${user.username}': ${resetLink}`);
 
-    // An den lokalen MailWatcher senden, damit er die E-Mail rausschickt
     if (MAILWATCHER) {
       try {
         await fetch(`${MAILWATCHER}/send-reset`, {
@@ -284,7 +249,6 @@ app.post("/api/auth/forgot-password", async (req, res) => {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ email: user.email, resetLink, username: user.username })
         });
-        console.log("✅ MailWatcher erfolgreich mit Reset-Mail beauftragt!");
       } catch (mailErr) {
         console.error("⚠️ Konnte MailWatcher für Reset-Mail nicht erreichen:", mailErr.message);
       }
@@ -297,54 +261,32 @@ app.post("/api/auth/forgot-password", async (req, res) => {
   }
 });
 
-// 2️⃣ Neues Passwort speichern (Robuste API)
 app.post("/api/auth/reset-password", async (req, res) => {
   try {
     const { token, password } = req.body;
 
-    if (
-      typeof token !== "string" ||
-      !token.trim() ||
-      typeof password !== "string" ||
-      !password.trim()
-    ) {
-      return res.status(400).json({
-        success: false,
-        error: "Token und neues Passwort sind erforderlich!"
-      });
+    if (!token?.trim() || !password?.trim()) {
+      return res.status(400).json({ success: false, error: "Token und neues Passwort sind erforderlich!" });
     }
 
-    const cleanToken = token.trim();
-
     const user = await User.findOne({
-      resetPasswordToken: cleanToken,
+      resetPasswordToken: token.trim(),
       resetPasswordExpires: { $gt: new Date() }
     });
 
     if (!user) {
-      return res.status(400).json({
-        success: false,
-        error: "Der Link ist ungültig oder abgelaufen!"
-      });
+      return res.status(400).json({ success: false, error: "Der Link ist ungültig oder abgelaufen!" });
     }
 
     user.password = password;
-    user.resetPasswordToken = undefined; // Token sofort verbrennen
+    user.resetPasswordToken = undefined;
     user.resetPasswordExpires = undefined;
     await user.save();
 
-    console.log(`🔒 Passwort erfolgreich geändert für User: ${user.username}`);
-
-    return res.json({
-      success: true,
-      message: "Passwort erfolgreich geändert!"
-    });
+    return res.json({ success: true, message: "Passwort erfolgreich geändert!" });
   } catch (err) {
     console.error("❌ Fehler beim Zurücksetzen:", err);
-    return res.status(500).json({
-      success: false,
-      error: "Serverfehler beim Zurücksetzen des Passworts."
-    });
+    return res.status(500).json({ success: false, error: "Serverfehler beim Zurücksetzen des Passworts." });
   }
 });
 
@@ -363,45 +305,45 @@ app.get("/api/blacklist", async (req, res) => {
 });
 
 app.post("/api/blacklist", async (req, res) => {
-    try {
-        const { number, reason, fan, image, imageUrl } = req.body;
-        
-        if (!number) {
-            return res.status(400).json({ error: "Telefonnummer fehlt!" });
-        }
+  try {
+    const { number, reason, fan, image, imageUrl } = req.body;
 
-        const finalImage = image || imageUrl;
-        let exifInfo = {};
-
-        if (finalImage) {
-            try {
-                const base64Data = finalImage.replace(/^data:image\/\w+;base64,/, "");
-                const buffer = Buffer.from(base64Data, 'base64');
-                const tags = ExifReader.load(buffer);
-                
-                exifInfo = {
-                    make: tags['Make']?.description || "",
-                    model: tags['Model']?.description || "",
-                    software: tags['Software']?.description || ""
-                };
-            } catch (exifErr) {}
-        }
-
-        const newEntry = new Blacklist({
-            number,
-            reason: reason || "Kein Grund angegeben",
-            fan: fan || "Unbekannt",
-            screenshots: finalImage ? [finalImage] : [],
-            metadata: exifInfo
-        });
-
-        const savedEntry = await newEntry.save();
-        io.emit("newBlacklistEntry", savedEntry);
-        res.status(201).json({ success: true, savedEntry });
-    } catch (err) {
-        console.error("❌ Fehler beim Speichern in der Blacklist:", err);
-        res.status(500).json({ error: "Fehler beim Speichern in der Datenbank" });
+    if (!number) {
+      return res.status(400).json({ error: "Telefonnummer fehlt!" });
     }
+
+    const finalImage = image || imageUrl;
+    let exifInfo = {};
+
+    if (finalImage) {
+      try {
+        const base64Data = finalImage.replace(/^data:image\/\w+;base64,/, "");
+        const buffer = Buffer.from(base64Data, 'base64');
+        const tags = ExifReader.load(buffer);
+
+        exifInfo = {
+          make: tags['Make']?.description || "",
+          model: tags['Model']?.description || "",
+          software: tags['Software']?.description || ""
+        };
+      } catch (exifErr) {}
+    }
+
+    const newEntry = new Blacklist({
+      number,
+      reason: reason || "Kein Grund angegeben",
+      fan: fan || "Unbekannt",
+      screenshots: finalImage ? [finalImage] : [],
+      metadata: exifInfo
+    });
+
+    const savedEntry = await newEntry.save();
+    io.emit("newBlacklistEntry", savedEntry);
+    res.status(201).json({ success: true, savedEntry });
+  } catch (err) {
+    console.error("❌ Fehler beim Speichern in der Blacklist:", err);
+    res.status(500).json({ error: "Fehler beim Speichern in der Datenbank" });
+  }
 });
 
 // =========================================================
@@ -445,12 +387,64 @@ app.get("/tickets/:id", async (req, res) => {
   }
 });
 
+// ⚡ NEU: Antwort per Mail versenden & Ticket schließen
+app.post("/tickets/:id/reply", async (req, res) => {
+  try {
+    let { id } = req.params;
+    const { email, message } = req.body;
+    id = id ? id.trim() : "";
+
+    const queryConditions = [
+      { ticketId: id },
+      { ticketId: { $regex: new RegExp(`^${id}$`, "i") } }
+    ];
+    if (mongoose.isValidObjectId(id)) {
+      queryConditions.push({ _id: id });
+    }
+
+    // Status direkt auf geschlossen setzen
+    const updatedTicket = await Ticket.findOneAndUpdate(
+      { $or: queryConditions },
+      { status: "closed" },
+      { new: true }
+    );
+
+    if (!updatedTicket) {
+      return res.status(404).json({ error: "Ticket nicht gefunden" });
+    }
+
+    // Mail via MailWatcher versenden falls eingerichtet
+    if (MAILWATCHER) {
+      try {
+        await fetch(`${MAILWATCHER}/ticket-reply`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ticketId: updatedTicket.ticketId,
+            email: email || updatedTicket.from,
+            message: message
+          })
+        });
+      } catch (mailErr) {
+        console.error("⚠️ Konnte MailWatcher für Ticket-Antwort nicht erreichen:", mailErr.message);
+      }
+    }
+
+    io.emit("ticketUpdated", updatedTicket);
+    res.json({ success: true, updatedTicket });
+  } catch (err) {
+    console.error("❌ Fehler beim Beantworten des Tickets:", err);
+    res.status(500).json({ error: "Fehler beim Senden der Antwort" });
+  }
+});
+
+// Ticket Öffnen / Schließen
 app.post("/tickets/:id/:action", async (req, res) => {
   try {
     let { id, action } = req.params;
     id = id ? id.trim() : "";
     const newStatus = action === "close" ? "closed" : "open";
-    
+
     const queryConditions = [
       { ticketId: id },
       { ticketId: { $regex: new RegExp(`^${id}$`, "i") } }
