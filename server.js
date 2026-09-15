@@ -56,9 +56,7 @@ const userSchema = new mongoose.Schema({
   username: { type: String, required: true, unique: true, trim: true },
   email: { type: String, required: true, unique: true, trim: true, lowercase: true },
   password: { type: String, required: true },
-  resetPasswordToken: { type: String },
-  resetPasswordExpires: { type: Date },
-  verificationPin: { type: String },       // ⚡ Dynamischer PIN für E-Mail-Verifizierung
+  verificationPin: { type: String },         // ⚡ Dynamischer PIN für E-Mail-Verifizierung
   verificationPinExpires: { type: Date },  // Ablaufzeit des PINs
   createdAt: { type: Date, default: Date.now }
 });
@@ -121,49 +119,6 @@ app.get("/admin", (req, res) => {
   res.sendFile(path.join(__dirname, "admin.html"));
 });
 
-// 🔐 PASSWORT-RESET-SEITEN
-app.get("/passwortvergessen.html", (req, res) => {
-  return res.status(403).send(`
-    <!DOCTYPE html>
-    <html lang="de">
-    <head><meta charset="UTF-8"><title>Zugriff verweigert</title></head>
-    <body style="background:#110515; color:#fff; font-family:Arial; text-align:center; padding-top:15vh;">
-      <h1 style="color:#ff4fae;">Zugriff verweigert! 🛑</h1>
-      <p>Diese Seite kann nur über den gültigen Reset-Link aus deiner E-Mail aufgerufen werden.</p>
-      <p><a href="/" style="color:#00ffaa;">Zur Startseite</a></p>
-    </body>
-    </html>
-  `);
-});
-
-app.get("/passwortvergessen.html/:token", async (req, res) => {
-  const token = req.params.token;
-  try {
-    const user = await User.findOne({
-      resetPasswordToken: token.trim(),
-      resetPasswordExpires: { $gt: new Date() }
-    });
-
-    if (!user) {
-      return res.status(400).send(`
-        <!DOCTYPE html>
-        <html lang="de">
-        <head><meta charset="UTF-8"><title>Link ungültig</title></head>
-        <body style="background:#110515; color:#fff; font-family:Arial; text-align:center; padding-top:15vh;">
-          <h1 style="color:#ff4fae;">Link ungültig oder bereits abgelaufen! ⏳</h1>
-          <p>Dieser Link wurde entweder schon benutzt oder ist älter als 1 Stunde.</p>
-        </body>
-        </html>
-      `);
-    }
-
-    res.sendFile(path.join(__dirname, "passwortvergessen.html"));
-  } catch (err) {
-    console.error("❌ Fehler beim Prüfen des Tokens:", err);
-    res.status(500).send("Serverfehler");
-  }
-});
-
 // 🔐 AUTH ROUTES
 app.post("/api/auth/register", async (req, res) => {
   try {
@@ -218,7 +173,7 @@ app.post("/api/auth/login", async (req, res) => {
   }
 });
 
-// ⚡ 1. PIN anfordern (generiert einen zufälligen PIN und schickt ihn per Mail)
+// ⚡ 1. PIN anfordern (generiert einen zufälligen 6-stelligen PIN)
 app.post("/api/auth/send-pin", async (req, res) => {
   try {
     const { email } = req.body;
@@ -244,13 +199,18 @@ app.post("/api/auth/send-pin", async (req, res) => {
     user.verificationPinExpires = Date.now() + 10 * 60 * 1000; // 10 Minuten gültig
     await user.save();
 
-    // Per MailWatcher versenden
+    // Per MailWatcher versenden (Sendet den PIN explizit mit)
     if (MAILWATCHER) {
       try {
         await fetch(`${MAILWATCHER}/send-pin`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: user.email, pin, username: user.username })
+          body: JSON.stringify({ 
+            email: user.email, 
+            pin: pin,                    
+            username: user.username,
+            message: `Dein Sicherheitscode für Luna: ${pin}` 
+          })
         });
       } catch (mailErr) {
         console.error("⚠️ Konnte MailWatcher für PIN nicht erreichen:", mailErr.message);
@@ -264,7 +224,7 @@ app.post("/api/auth/send-pin", async (req, res) => {
   }
 });
 
-// ⚡ 2. PIN verifizieren (prüft den dynamisch per Mail erhaltenen PIN gegen die DB)
+// ⚡ 2. PIN verifizieren
 app.post("/api/auth/verify-pin", async (req, res) => {
   try {
     const { email, pin } = req.body;
@@ -284,7 +244,6 @@ app.post("/api/auth/verify-pin", async (req, res) => {
         verificationPinExpires: { $gt: new Date() }
       });
     } else {
-      // Fallback falls nur der PIN übergeben wird
       user = await User.findOne({
         verificationPin: pin.trim(),
         verificationPinExpires: { $gt: new Date() }
@@ -295,7 +254,7 @@ app.post("/api/auth/verify-pin", async (req, res) => {
       return res.status(401).json({ success: false, error: "Ungültiger oder abgelaufener PIN!" });
     }
 
-    // PIN nach erfolgreicher Nutzung löschen (Einmal-Nutzung)
+    // PIN nach erfolgreicher Nutzung verbrauchen
     user.verificationPin = undefined;
     user.verificationPinExpires = undefined;
     await user.save();
@@ -312,52 +271,7 @@ app.post("/api/auth/verify-pin", async (req, res) => {
   }
 });
 
-app.post("/api/auth/forgot-password", async (req, res) => {
-  try {
-    const { email } = req.body;
-    if (!email) {
-      return res.status(400).json({ error: "Bitte gib deinen Benutzernamen oder deine E-Mail ein!" });
-    }
-
-    const searchValue = email.trim();
-    const user = await User.findOne({
-      $or: [
-        { username: searchValue },
-        { email: searchValue.toLowerCase() }
-      ]
-    });
-
-    if (!user) {
-      return res.json({ success: true, message: "Falls das Konto existiert, wurde eine E-Mail gesendet." });
-    }
-
-    const token = crypto.randomBytes(32).toString("hex");
-    user.resetPasswordToken = token;
-    user.resetPasswordExpires = Date.now() + 3600000;
-    await user.save();
-
-    const resetLink = `${BASE_URL}/passwortvergessen.html/${encodeURIComponent(token)}`;
-
-    if (MAILWATCHER) {
-      try {
-        await fetch(`${MAILWATCHER}/send-reset`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: user.email, resetLink, username: user.username })
-        });
-      } catch (mailErr) {
-        console.error("⚠️ Konnte MailWatcher für Reset-Mail nicht erreichen:", mailErr.message);
-      }
-    }
-
-    res.json({ success: true, message: "Reset-Link wurde per E-Mail versendet!" });
-  } catch (err) {
-    console.error("❌ Fehler bei Passwort vergessen:", err);
-    res.status(500).json({ error: "Serverfehler" });
-  }
-});
-
-// 🔐 Neues Passwort per E-Mail (nach erfolgreicher PIN-Verifizierung) speichern
+// 🔐 Neues Passwort speichern (nach erfolgreicher PIN-Prüfung)
 app.post("/api/auth/reset-password-by-email", async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -378,11 +292,7 @@ app.post("/api/auth/reset-password-by-email", async (req, res) => {
       return res.status(404).json({ success: false, error: "Benutzer nicht gefunden!" });
     }
 
-    // Passwort direkt setzen (Mongoose speichert es)
     user.password = password.trim();
-    // Sicherheitshalber etwaige alte Tokens direkt mit aufräumen
-    user.resetPasswordToken = undefined;
-    user.resetPasswordExpires = undefined;
     user.verificationPin = undefined;
     user.verificationPinExpires = undefined;
     
@@ -394,6 +304,7 @@ app.post("/api/auth/reset-password-by-email", async (req, res) => {
     return res.status(500).json({ success: false, error: "Serverfehler beim Speichern des Passworts." });
   }
 });
+
 // =========================================================
 // 🏴‍☠️ BLACKLIST ROUTES
 // =========================================================
@@ -491,7 +402,6 @@ app.get("/tickets/:id", async (req, res) => {
   }
 });
 
-// ⚡ NEU: Antwort per Mail versenden & Ticket schließen
 app.post("/tickets/:id/reply", async (req, res) => {
   try {
     let { id } = req.params;
@@ -506,7 +416,6 @@ app.post("/tickets/:id/reply", async (req, res) => {
       queryConditions.push({ _id: id });
     }
 
-    // Status direkt auf geschlossen setzen
     const updatedTicket = await Ticket.findOneAndUpdate(
       { $or: queryConditions },
       { status: "closed" },
@@ -517,7 +426,6 @@ app.post("/tickets/:id/reply", async (req, res) => {
       return res.status(404).json({ error: "Ticket nicht gefunden" });
     }
 
-    // Mail via MailWatcher versenden falls eingerichtet
     if (MAILWATCHER) {
       try {
         await fetch(`${MAILWATCHER}/ticket-reply`, {
@@ -542,7 +450,6 @@ app.post("/tickets/:id/reply", async (req, res) => {
   }
 });
 
-// Ticket Öffnen / Schließen
 app.post("/tickets/:id/:action", async (req, res) => {
   try {
     let { id, action } = req.params;
