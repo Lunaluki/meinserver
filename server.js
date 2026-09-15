@@ -58,6 +58,8 @@ const userSchema = new mongoose.Schema({
   password: { type: String, required: true },
   resetPasswordToken: { type: String },
   resetPasswordExpires: { type: Date },
+  verificationPin: { type: String },       // ⚡ Dynamischer PIN für E-Mail-Verifizierung
+  verificationPinExpires: { type: Date },  // Ablaufzeit des PINs
   createdAt: { type: Date, default: Date.now }
 });
 
@@ -216,29 +218,97 @@ app.post("/api/auth/login", async (req, res) => {
   }
 });
 
-// 🔐 Feste PIN-Verifizierung (Ersetzt die Datenbank-Suche/E-Mail-Abhängigkeit)
+// ⚡ 1. PIN anfordern (generiert einen zufälligen PIN und schickt ihn per Mail)
+app.post("/api/auth/send-pin", async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ success: false, error: "E-Mail oder Benutzername erforderlich!" });
+    }
+
+    const searchValue = email.trim();
+    const user = await User.findOne({
+      $or: [
+        { username: searchValue },
+        { email: searchValue.toLowerCase() }
+      ]
+    });
+
+    if (!user) {
+      return res.status(404).json({ success: false, error: "Benutzer nicht gefunden!" });
+    }
+
+    // 6-stelligen PIN generieren
+    const pin = Math.floor(100000 + Math.random() * 900000).toString();
+    user.verificationPin = pin;
+    user.verificationPinExpires = Date.now() + 10 * 60 * 1000; // 10 Minuten gültig
+    await user.save();
+
+    // Per MailWatcher versenden
+    if (MAILWATCHER) {
+      try {
+        await fetch(`${MAILWATCHER}/send-pin`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: user.email, pin, username: user.username })
+        });
+      } catch (mailErr) {
+        console.error("⚠️ Konnte MailWatcher für PIN nicht erreichen:", mailErr.message);
+      }
+    }
+
+    res.json({ success: true, message: "PIN wurde erfolgreich per E-Mail gesendet!" });
+  } catch (err) {
+    console.error("❌ Fehler beim Senden des PINs:", err);
+    res.status(500).json({ success: false, error: "Serverfehler" });
+  }
+});
+
+// ⚡ 2. PIN verifizieren (prüft den dynamisch per Mail erhaltenen PIN gegen die DB)
 app.post("/api/auth/verify-pin", async (req, res) => {
   try {
-    const { pin } = req.body;
+    const { email, pin } = req.body;
     if (!pin) {
-      return res.status(400).json({ success: false, error: "Keine PIN angegeben!" });
+      return res.status(400).json({ success: false, error: "Kein PIN angegeben!" });
     }
 
-    // Standard-PIN ist "1234", kann über Render als Environment-Variable 'ADMIN_PIN' geändert werden
-    const ADMIN_PIN = process.env.ADMIN_PIN || "1234";
-
-    if (pin.trim() !== ADMIN_PIN) {
-      return res.status(401).json({ success: false, error: "Falsche PIN!" });
+    let user = null;
+    if (email) {
+      const searchValue = email.trim();
+      user = await User.findOne({
+        $or: [
+          { username: searchValue },
+          { email: searchValue.toLowerCase() }
+        ],
+        verificationPin: pin.trim(),
+        verificationPinExpires: { $gt: new Date() }
+      });
+    } else {
+      // Fallback falls nur der PIN übergeben wird
+      user = await User.findOne({
+        verificationPin: pin.trim(),
+        verificationPinExpires: { $gt: new Date() }
+      });
     }
+
+    if (!user) {
+      return res.status(401).json({ success: false, error: "Ungültiger oder abgelaufener PIN!" });
+    }
+
+    // PIN nach erfolgreicher Nutzung löschen (Einmal-Nutzung)
+    user.verificationPin = undefined;
+    user.verificationPinExpires = undefined;
+    await user.save();
 
     res.json({ 
       success: true, 
-      token: "token_admin_fixed", 
-      username: "Admin" 
+      token: "token_" + user._id, 
+      userId: user._id,
+      username: user.username 
     });
   } catch (err) {
     console.error("❌ Fehler bei der PIN-Verifizierung:", err);
-    res.status(500).json({ error: "Serverfehler" });
+    res.status(500).json({ success: false, error: "Serverfehler" });
   }
 });
 
