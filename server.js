@@ -432,7 +432,7 @@ app.post("/tickets/:id/reply", async (req, res) => {
 
     if (MAILWATCHER) {
       try {
-        await fetch(`${MAILWATCHER}/ticket-reply`, {
+        await fetch(`${MAILWATCHER}/admin-reply`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
