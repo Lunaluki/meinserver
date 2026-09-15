@@ -416,9 +416,13 @@ app.post("/tickets/:id/reply", async (req, res) => {
       queryConditions.push({ _id: id });
     }
 
+    // ⚡ Admin-Antwort und Status in der Datenbank speichern
     const updatedTicket = await Ticket.findOneAndUpdate(
       { $or: queryConditions },
-      { status: "closed" },
+      { 
+        status: "closed", 
+        adminReply: message // Falls du das Feld in deinem Schema hast, wird es hier gespeichert
+      },
       { new: true }
     );
 
@@ -434,7 +438,7 @@ app.post("/tickets/:id/reply", async (req, res) => {
           body: JSON.stringify({
             ticketId: updatedTicket.ticketId,
             email: email || updatedTicket.from,
-            message: message
+            message: message // ⚡ Hier wird die Nachricht nun korrekt an den MailWatcher übergeben
           })
         });
       } catch (mailErr) {
