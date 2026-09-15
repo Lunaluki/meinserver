@@ -25,7 +25,7 @@ const io = new Server(server, {
 // 🌐 ZENTRALE KONFIGURATION
 // =========================================================
 const MAILWATCHER = process.env.MAILWATCHER_URL || "https://transmit-shore-feedback-mean.trycloudflare.com";
-const BASE_URL = process.env.BASE_URL || "https://dsvgo.onrender.com";
+const BASE_URL = process.env.BASE_URL || "https://meinserver-u317.onrender.com";
 
 // CORS komplett öffnen
 app.use(cors({
