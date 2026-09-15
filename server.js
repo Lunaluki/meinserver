@@ -216,6 +216,32 @@ app.post("/api/auth/login", async (req, res) => {
   }
 });
 
+// 🔐 Feste PIN-Verifizierung (Ersetzt die Datenbank-Suche/E-Mail-Abhängigkeit)
+app.post("/api/auth/verify-pin", async (req, res) => {
+  try {
+    const { pin } = req.body;
+    if (!pin) {
+      return res.status(400).json({ success: false, error: "Keine PIN angegeben!" });
+    }
+
+    // Standard-PIN ist "1234", kann über Render als Environment-Variable 'ADMIN_PIN' geändert werden
+    const ADMIN_PIN = process.env.ADMIN_PIN || "1234";
+
+    if (pin.trim() !== ADMIN_PIN) {
+      return res.status(401).json({ success: false, error: "Falsche PIN!" });
+    }
+
+    res.json({ 
+      success: true, 
+      token: "token_admin_fixed", 
+      username: "Admin" 
+    });
+  } catch (err) {
+    console.error("❌ Fehler bei der PIN-Verifizierung:", err);
+    res.status(500).json({ error: "Serverfehler" });
+  }
+});
+
 app.post("/api/auth/forgot-password", async (req, res) => {
   try {
     const { email } = req.body;
