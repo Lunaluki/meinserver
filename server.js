@@ -357,35 +357,43 @@ app.post("/api/auth/forgot-password", async (req, res) => {
   }
 });
 
-app.post("/api/auth/reset-password", async (req, res) => {
+// 🔐 Neues Passwort per E-Mail (nach erfolgreicher PIN-Verifizierung) speichern
+app.post("/api/auth/reset-password-by-email", async (req, res) => {
   try {
-    const { token, password } = req.body;
+    const { email, password } = req.body;
 
-    if (!token?.trim() || !password?.trim()) {
-      return res.status(400).json({ success: false, error: "Token und neues Passwort sind erforderlich!" });
+    if (!email?.trim() || !password?.trim()) {
+      return res.status(400).json({ success: false, error: "E-Mail und neues Passwort sind erforderlich!" });
     }
 
+    const searchValue = email.trim();
     const user = await User.findOne({
-      resetPasswordToken: token.trim(),
-      resetPasswordExpires: { $gt: new Date() }
+      $or: [
+        { username: searchValue },
+        { email: searchValue.toLowerCase() }
+      ]
     });
 
     if (!user) {
-      return res.status(400).json({ success: false, error: "Der Link ist ungültig oder abgelaufen!" });
+      return res.status(404).json({ success: false, error: "Benutzer nicht gefunden!" });
     }
 
-    user.password = password;
+    // Passwort direkt setzen (Mongoose speichert es)
+    user.password = password.trim();
+    // Sicherheitshalber etwaige alte Tokens direkt mit aufräumen
     user.resetPasswordToken = undefined;
     user.resetPasswordExpires = undefined;
+    user.verificationPin = undefined;
+    user.verificationPinExpires = undefined;
+    
     await user.save();
 
     return res.json({ success: true, message: "Passwort erfolgreich geändert!" });
   } catch (err) {
-    console.error("❌ Fehler beim Zurücksetzen:", err);
-    return res.status(500).json({ success: false, error: "Serverfehler beim Zurücksetzen des Passworts." });
+    console.error("❌ Fehler beim Zurücksetzen des Passworts:", err);
+    return res.status(500).json({ success: false, error: "Serverfehler beim Speichern des Passworts." });
   }
 });
-
 // =========================================================
 // 🏴‍☠️ BLACKLIST ROUTES
 // =========================================================
